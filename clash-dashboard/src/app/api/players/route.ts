@@ -20,6 +20,7 @@ export async function GET() {
         p.is_active,
         COALESCE(ps.donation_points, 0) as donation_points,
         COALESCE(ps.event_points, 0) as event_points,
+        COALESCE(ps.trophy_points, 0) as trophy_points,
         COALESCE(ps.war_points, 0) as war_points,
         COALESCE(ps.cwl_points, 0) as cwl_points,
         COALESCE(ps.capital_points, 0) as capital_points,

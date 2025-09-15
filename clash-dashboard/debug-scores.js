@@ -11,7 +11,7 @@ async function debugScores() {
         
         // Ver puntos de donaciones específicos
         const donations = await pool.query(`
-            SELECT player_tag, player_name, donation_points
+            SELECT ps.player_tag, p.player_name, ps.donation_points
             FROM player_scores ps
             JOIN players p ON ps.player_tag = p.player_tag
             WHERE ps.season_month = '2025-09'
@@ -26,15 +26,21 @@ async function debugScores() {
         
         // Ver datos de donaciones raw
         console.log('\nDATOS RAW DE DONACIONES (Top 5):');
+        // CAMBIAR ESTA CONSULTA:
         const rawDonations = await pool.query(`
-            SELECT player_tag, donations_given, donations_received,
-                   (donations_given - donations_received) as balance
+            SELECT DISTINCT ON (player_tag) 
+                player_tag, donations_given, donations_received,
+                (donations_given - donations_received) as balance
             FROM donations 
             WHERE recorded_at >= '2025-09-01'
-            ORDER BY donations_given DESC LIMIT 5
+            ORDER BY player_tag, recorded_at DESC
         `);
-        
-        rawDonations.rows.forEach(row => {
+
+        // Y ordenar manualmente por donaciones:
+        const sortedDonations = rawDonations.rows.sort((a, b) => b.donations_given - a.donations_given);
+
+        console.log('\nDATOS RAW DE DONACIONES (Top 5):');
+        sortedDonations.slice(0, 5).forEach(row => {
             console.log(`Tag: ${row.player_tag}, Donado: ${row.donations_given}, Balance: ${row.balance}`);
         });
         
@@ -44,7 +50,8 @@ async function debugScores() {
             SELECT player_tag, clan_games_points, clan_games_date
             FROM season_events 
             WHERE season_month = '2025-09'
-            AND clan_games_points > 1000
+            AND clan_games_date >= '2025-09-01'
+            AND clan_games_points > 0 AND clan_games_points < 10000
             ORDER BY clan_games_points DESC LIMIT 5
         `);
         

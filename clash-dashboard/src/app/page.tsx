@@ -242,6 +242,12 @@ export default function Dashboard() {
                 {updating ? '⏳ Actualizando...' : '🔄 Actualizar'}
               </button>
               <button
+                onClick={() => window.open('/admin/clan-games', '_blank')}
+                className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 transition-colors"
+              >
+                🎯 Admin Clan Games
+              </button>
+              <button
                 onClick={resetSeason}
                 disabled={updating}
                 className={`px-4 py-2 rounded-lg transition-colors ${

@@ -131,47 +131,7 @@ class AccumulativeClashUpdater {
     }
     
     async extractClanGamesPoints(playerData, seasonStart) {
-        try {
-            const cleanTag = playerData.tag.replace('#', '');
-            
-            const lastRecord = await pool.query(`
-                SELECT clan_games_points, clan_games_date
-                FROM season_events 
-                WHERE player_tag = $1 
-                ORDER BY created_at DESC 
-                LIMIT 1
-            `, [cleanTag]);
-            
-            if (playerData.achievements) {
-                const gamesChampion = playerData.achievements.find(
-                    achievement => achievement.name === "Games Champion"
-                );
-                
-                if (gamesChampion) {
-                    const currentTotal = gamesChampion.value;
-                    
-                    if (lastRecord.rows.length === 0) {
-                        return currentTotal;
-                    }
-                    
-                    const lastTotal = lastRecord.rows[0].clan_games_points;
-                    const lastDate = new Date(lastRecord.rows[0].clan_games_date || seasonStart);
-                    
-                    const daysSinceLastUpdate = (new Date() - lastDate) / (1000 * 60 * 60 * 24);
-                    
-                    if (currentTotal > lastTotal && daysSinceLastUpdate < 30) {
-                        const seasonBaseline = await this.getSeasonBaseline(cleanTag, seasonStart);
-                        return Math.max(0, currentTotal - seasonBaseline);
-                    }
-                }
-            }
-            
-            return lastRecord.rows.length > 0 ? lastRecord.rows[0].clan_games_points : 0;
-            
-        } catch (error) {
-            console.error('Error extracting clan games:', error.message);
-            return 0;
-        }
+        return 0;
     }
     
     async getSeasonBaseline(playerTag, seasonStart) {
@@ -475,42 +435,51 @@ class AccumulativeClashUpdater {
     async calculateTopDonors(month, seasonStart) {
         console.log('   💝 Top 8 MÁS donaciones...');
         
-        const topDonors = await pool.query(`
-            SELECT player_tag, donations_given 
+        const allDonations = await pool.query(`
+            SELECT DISTINCT ON (player_tag) 
+                player_tag, donations_given 
             FROM donations 
             WHERE recorded_at >= $1 AND donations_given > 0
-            ORDER BY donations_given DESC LIMIT 8
+            ORDER BY player_tag, recorded_at DESC
         `, [seasonStart.toISOString().split('T')[0]]);
         
-        for (let i = 0; i < topDonors.rows.length; i++) {
+        const sortedDonors = allDonations.rows.sort((a, b) => b.donations_given - a.donations_given);
+        const topDonors = sortedDonors.slice(0, 8);
+        
+        for (let i = 0; i < topDonors.length; i++) {
             const points = POINTS_SYSTEM[i + 1] || 0;
             await pool.query(`
                 INSERT INTO player_scores (player_tag, donation_points, season_month)
                 VALUES ($1, $2, $3)
                 ON CONFLICT (player_tag, season_month)
                 DO UPDATE SET donation_points = $2
-            `, [topDonors.rows[i].player_tag, points, month]);
+            `, [topDonors[i].player_tag, points, month]);
         }
     }
-    
+
     async calculateBestBalance(month, seasonStart) {
         console.log('   ⚖️ Top 8 MEJOR balance...');
         
-        const topBalance = await pool.query(`
-            SELECT player_tag, (donations_given - donations_received) as balance
+        const allBalance = await pool.query(`
+            SELECT DISTINCT ON (player_tag) 
+                player_tag, donations_given, donations_received,
+                (donations_given - donations_received) as balance
             FROM donations 
             WHERE recorded_at >= $1
-            ORDER BY (donations_given - donations_received) DESC LIMIT 8
+            ORDER BY player_tag, recorded_at DESC
         `, [seasonStart.toISOString().split('T')[0]]);
         
-        for (let i = 0; i < topBalance.rows.length; i++) {
+        const sortedBalance = allBalance.rows.sort((a, b) => b.balance - a.balance);
+        const topBalance = sortedBalance.slice(0, 8);
+        
+        for (let i = 0; i < topBalance.length; i++) {
             const points = POINTS_SYSTEM[i + 1] || 0;
             await pool.query(`
                 INSERT INTO player_scores (player_tag, donation_points, season_month)
                 VALUES ($1, $2, $3)
                 ON CONFLICT (player_tag, season_month)
-                DO UPDATE SET donation_points = player_scores.donation_points + $2
-            `, [topBalance.rows[i].player_tag, points, month]);
+                DO UPDATE SET donation_points = COALESCE(player_scores.donation_points, 0) + $2
+            `, [topBalance[i].player_tag, points, month]);
         }
     }
     
@@ -540,13 +509,21 @@ class AccumulativeClashUpdater {
     async calculateClanGames(month, seasonStart) {
         console.log('   🎯 Top 8 Clan Games...');
         
+        // Obtener puntos SOLO de esta season usando la baseline
         const topClanGames = await pool.query(`
-            SELECT player_tag, clan_games_points 
-            FROM season_events 
-            WHERE season_month = $1 
-            AND clan_games_date >= $2
-            AND clan_games_points > 0
-            ORDER BY clan_games_points DESC LIMIT 8
+            SELECT se.player_tag, 
+                GREATEST(0, se.clan_games_points - COALESCE(baseline.clan_games_points, 0)) as season_points
+            FROM season_events se
+            LEFT JOIN (
+                SELECT player_tag, clan_games_points
+                FROM season_events 
+                WHERE created_at <= $2
+                AND player_tag IN (SELECT player_tag FROM season_events WHERE season_month = $1)
+            ) baseline ON se.player_tag = baseline.player_tag
+            WHERE se.season_month = $1 
+            AND se.clan_games_date >= $2
+            AND se.clan_games_points > 0
+            ORDER BY season_points DESC LIMIT 8
         `, [month, seasonStart.toISOString().split('T')[0]]);
         
         for (let i = 0; i < topClanGames.rows.length; i++) {
