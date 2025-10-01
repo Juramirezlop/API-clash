@@ -106,7 +106,6 @@ class AccumulativeClashUpdater {
                 ON CONFLICT (player_tag) 
                 DO UPDATE SET 
                     player_name = $2,
-                    last_seen = NOW(),
                     is_active = true,
                     updated_at = NOW()
             `, [member.tag.replace('#', ''), member.name]);
@@ -155,6 +154,28 @@ class AccumulativeClashUpdater {
         const cleanTag = playerTag.replace('#', '');
         const today = new Date().toISOString().split('T')[0];
         const currentMonth = new Date().toISOString().substring(0, 7);
+        
+        // 🆕 DETECTAR ACTIVIDAD REAL - comparar donaciones
+        const lastDonations = await pool.query(`
+            SELECT donations_given 
+            FROM donations 
+            WHERE player_tag = $1 
+            ORDER BY recorded_at DESC 
+            LIMIT 1
+        `, [cleanTag]);
+        
+        const currentDonations = playerData.donations || 0;
+        const previousDonations = lastDonations.rows.length > 0 ? lastDonations.rows[0].donations_given : 0;
+        
+        // Solo actualizar last_seen si hubo actividad REAL
+        if (currentDonations > previousDonations) {
+            await pool.query(`
+                UPDATE players 
+                SET last_seen = NOW() 
+                WHERE player_tag = $1
+            `, [cleanTag]);
+            console.log(`   🟢 Actividad detectada: ${previousDonations} → ${currentDonations} donaciones`);
+        }
         
         await pool.query(`
             INSERT INTO donations (player_tag, donations_given, donations_received, donation_ratio, recorded_at)
@@ -487,12 +508,12 @@ class AccumulativeClashUpdater {
         console.log('   🏰 Top 8 Capital ACUMULATIVO...');
         
         const topCapital = await pool.query(`
-            SELECT player_tag, AVG(average_per_attack) as avg_per_attack
+            SELECT player_tag, SUM(capital_destroyed) as total_destroyed
             FROM capital_raids 
-            WHERE weekend_date >= $1 AND attacks_used > 0
+            WHERE weekend_date >= $1
             GROUP BY player_tag
-            HAVING AVG(average_per_attack) > 0
-            ORDER BY avg_per_attack DESC LIMIT 8
+            HAVING SUM(capital_destroyed) > 0
+            ORDER BY total_destroyed DESC LIMIT 8
         `, [seasonStart.toISOString().split('T')[0]]);
         
         for (let i = 0; i < topCapital.rows.length; i++) {
