@@ -15,8 +15,13 @@ const pool = new Pool({
     connectionString: DATABASE_URL
 });
 
-const POINTS_SYSTEM = {
+// ⭐ SISTEMAS DE PUNTUACIÓN
+const NORMAL_POINTS = {
     1: 10, 2: 8, 3: 6, 4: 5, 5: 4, 6: 3, 7: 2, 8: 1
+};
+
+const PREMIUM_POINTS = {
+    1: 20, 2: 16, 3: 12, 4: 10, 5: 8, 6: 6, 7: 4, 8: 2
 };
 
 class AccumulativeClashUpdater {
@@ -24,7 +29,6 @@ class AccumulativeClashUpdater {
     async updateAllData() {
         console.log('🚀 Iniciando actualización ACUMULATIVA...');
         
-        // Obtener fecha de inicio de temporada dinámica
         const seasonStart = await this.getSeasonStartDate();
         console.log(`🗓️ Temporada desde: ${seasonStart.toISOString().split('T')[0]}\n`);
         
@@ -55,7 +59,9 @@ class AccumulativeClashUpdater {
             console.log('\n🏆 Verificando CWL...');
             await this.updateCWLData(seasonStart);
             
-            console.log('\n🧮 Calculando puntuaciones con sistema de 7 categorías...');
+            console.log('\n🧮 Calculando puntuaciones con sistema de 9 categorías...');
+            console.log('   📌 Sistema Normal (7 categorías): 10-8-6-5-4-3-2-1 pts');
+            console.log('   💎 Sistema Premium (2 categorías): 20-16-12-10-8-6-4-2 pts\n');
             await this.calculateAllScoresFixed(seasonStart);
             
             console.log('\n✅ ¡Actualización acumulativa completada!');
@@ -129,33 +135,12 @@ class AccumulativeClashUpdater {
         return response.data;
     }
     
-    async extractClanGamesPoints(playerData, seasonStart) {
-        return 0;
-    }
-    
-    async getSeasonBaseline(playerTag, seasonStart) {
-        try {
-            const baseline = await pool.query(`
-                SELECT clan_games_points
-                FROM season_events 
-                WHERE player_tag = $1 
-                AND created_at <= $2
-                ORDER BY created_at DESC 
-                LIMIT 1
-            `, [playerTag, seasonStart]);
-            
-            return baseline.rows.length > 0 ? baseline.rows[0].clan_games_points : 0;
-        } catch (error) {
-            return 0;
-        }
-    }
-    
     async updatePlayerStats(playerTag, playerData, seasonStart) {
         const cleanTag = playerTag.replace('#', '');
         const today = new Date().toISOString().split('T')[0];
         const currentMonth = new Date().toISOString().substring(0, 7);
         
-        // 🆕 DETECTAR ACTIVIDAD REAL - comparar donaciones
+        // Detectar actividad real - comparar donaciones
         const lastDonations = await pool.query(`
             SELECT donations_given 
             FROM donations 
@@ -167,7 +152,6 @@ class AccumulativeClashUpdater {
         const currentDonations = playerData.donations || 0;
         const previousDonations = lastDonations.rows.length > 0 ? lastDonations.rows[0].donations_given : 0;
         
-        // Solo actualizar last_seen si hubo actividad REAL
         if (currentDonations > previousDonations) {
             await pool.query(`
                 UPDATE players 
@@ -193,20 +177,17 @@ class AccumulativeClashUpdater {
             today
         ]);
         
-        const clanGamesPoints = await this.extractClanGamesPoints(playerData, seasonStart);
-        
         await pool.query(`
             INSERT INTO season_events (player_tag, season_points, clan_games_points, clan_games_date, season_month)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (player_tag, season_month)
             DO UPDATE SET 
                 season_points = $2,
-                clan_games_points = $3,
                 clan_games_date = $4
         `, [
             cleanTag,
             playerData.trophies || 0,
-            clanGamesPoints,
+            0,
             today,
             currentMonth
         ]);
@@ -432,6 +413,10 @@ class AccumulativeClashUpdater {
         }
     }
     
+    // ========================================
+    // SISTEMA DE PUNTUACIONES - 9 CATEGORÍAS
+    // ========================================
+    
     async calculateAllScoresFixed(seasonStart) {
         const currentMonth = new Date().toISOString().substring(0, 7);
         
@@ -443,18 +428,33 @@ class AccumulativeClashUpdater {
             WHERE season_month = $1
         `, [currentMonth]);
         
-        await this.calculateTopDonors(currentMonth, seasonStart);
-        await this.calculateBestBalance(currentMonth, seasonStart);
-        await this.calculateCapitalAccumulative(currentMonth, seasonStart);
-        await this.calculateClanGames(currentMonth, seasonStart);
-        await this.calculateTrophies(currentMonth);
-        await this.calculateWarAccumulative(currentMonth, seasonStart);
-        await this.calculateCWLAccumulative(currentMonth, seasonStart);
+        // DONACIONES (2 categorías - Sistema Normal)
+        await this.calculateTopDonors(currentMonth, seasonStart);          // 1. Cantidad
+        await this.calculateBestBalance(currentMonth, seasonStart);        // 2. Balance
+        
+        // CAPITAL (2 categorías - Sistema Normal)
+        await this.calculateCapitalTotal(currentMonth, seasonStart);       // 3. Total
+        await this.calculateCapitalAverage(currentMonth, seasonStart);     // 4. Promedio ⭐ NUEVO
+        
+        // GUERRAS (2 categorías - Sistema Normal)
+        await this.calculateWarTotal(currentMonth, seasonStart);           // 5. Total estrellas
+        await this.calculateWarAverage(currentMonth, seasonStart);         // 6. Promedio real ⭐ NUEVO
+        
+        // COPAS (1 categoría - Sistema Normal)
+        await this.calculateTrophies(currentMonth);                        // 7. Trofeos
+        
+        // CWL (1 categoría - Sistema Premium)
+        await this.calculateCWLPremium(currentMonth, seasonStart);         // 8. CWL 💎 PREMIUM
+        
+        // CLAN GAMES (1 categoría - Sistema Premium)
+        await this.calculateClanGamesPremium(currentMonth, seasonStart);   // 9. Clan Games 💎 PREMIUM
+        
         await this.calculateFinalTotals(currentMonth);
     }
     
+    // 1. DONACIONES - CANTIDAD
     async calculateTopDonors(month, seasonStart) {
-        console.log('   💝 Top 8 MÁS donaciones...');
+        console.log('   💝 1. Donaciones (Cantidad) [Normal 10-8-6-5-4-3-2-1]...');
         
         const allDonations = await pool.query(`
             SELECT DISTINCT ON (player_tag) 
@@ -468,7 +468,7 @@ class AccumulativeClashUpdater {
         const topDonors = sortedDonors.slice(0, 8);
         
         for (let i = 0; i < topDonors.length; i++) {
-            const points = POINTS_SYSTEM[i + 1] || 0;
+            const points = NORMAL_POINTS[i + 1] || 0;
             await pool.query(`
                 INSERT INTO player_scores (player_tag, donation_points, season_month)
                 VALUES ($1, $2, $3)
@@ -476,10 +476,13 @@ class AccumulativeClashUpdater {
                 DO UPDATE SET donation_points = $2
             `, [topDonors[i].player_tag, points, month]);
         }
+        
+        console.log(`      ✅ Top ${topDonors.length} calculados`);
     }
 
+    // 2. DONACIONES - BALANCE
     async calculateBestBalance(month, seasonStart) {
-        console.log('   ⚖️ Top 8 MEJOR balance...');
+        console.log('   ⚖️ 2. Donaciones (Balance) [Normal 10-8-6-5-4-3-2-1]...');
         
         const allBalance = await pool.query(`
             SELECT DISTINCT ON (player_tag) 
@@ -490,22 +493,27 @@ class AccumulativeClashUpdater {
             ORDER BY player_tag, recorded_at DESC
         `, [seasonStart.toISOString().split('T')[0]]);
         
-        const sortedBalance = allBalance.rows.sort((a, b) => b.balance - a.balance);
-        const topBalance = sortedBalance.slice(0, 8);
+        const sortedBalance = allBalance.rows
+            .filter(d => d.balance > 0)
+            .sort((a, b) => b.balance - a.balance)
+            .slice(0, 8);
         
-        for (let i = 0; i < topBalance.length; i++) {
-            const points = POINTS_SYSTEM[i + 1] || 0;
+        for (let i = 0; i < sortedBalance.length; i++) {
+            const points = NORMAL_POINTS[i + 1] || 0;
             await pool.query(`
                 INSERT INTO player_scores (player_tag, donation_points, season_month)
                 VALUES ($1, $2, $3)
                 ON CONFLICT (player_tag, season_month)
                 DO UPDATE SET donation_points = COALESCE(player_scores.donation_points, 0) + $2
-            `, [topBalance[i].player_tag, points, month]);
+            `, [sortedBalance[i].player_tag, points, month]);
         }
+        
+        console.log(`      ✅ Top ${sortedBalance.length} calculados`);
     }
     
-    async calculateCapitalAccumulative(month, seasonStart) {
-        console.log('   🏰 Top 8 Capital ACUMULATIVO...');
+    // 3. CAPITAL - TOTAL
+    async calculateCapitalTotal(month, seasonStart) {
+        console.log('   🏰 3. Capital (Total) [Normal 10-8-6-5-4-3-2-1]...');
         
         const topCapital = await pool.query(`
             SELECT player_tag, SUM(capital_destroyed) as total_destroyed
@@ -517,7 +525,7 @@ class AccumulativeClashUpdater {
         `, [seasonStart.toISOString().split('T')[0]]);
         
         for (let i = 0; i < topCapital.rows.length; i++) {
-            const points = POINTS_SYSTEM[i + 1] || 0;
+            const points = NORMAL_POINTS[i + 1] || 0;
             await pool.query(`
                 INSERT INTO player_scores (player_tag, capital_points, season_month)
                 VALUES ($1, $2, $3)
@@ -525,12 +533,155 @@ class AccumulativeClashUpdater {
                 DO UPDATE SET capital_points = $2
             `, [topCapital.rows[i].player_tag, points, month]);
         }
+        
+        console.log(`      ✅ Top ${topCapital.rows.length} calculados`);
     }
     
-    async calculateClanGames(month, seasonStart) {
-        console.log('   🎯 Top 8 Clan Games...');
+    // 4. CAPITAL - PROMEDIO ⭐ NUEVO
+    async calculateCapitalAverage(month, seasonStart) {
+        console.log('   📊 4. Capital (Promedio) [Normal 10-8-6-5-4-3-2-1]...');
         
-        // Obtener puntos SOLO de esta season usando la baseline
+        const capitalAvg = await pool.query(`
+            SELECT 
+                player_tag,
+                SUM(capital_destroyed) as total_destroyed,
+                SUM(attacks_used) as total_attacks,
+                CASE 
+                    WHEN SUM(attacks_used) > 0 THEN SUM(capital_destroyed)::float / SUM(attacks_used)
+                    ELSE 0 
+                END as avg_per_attack
+            FROM capital_raids 
+            WHERE weekend_date >= $1
+            GROUP BY player_tag
+            HAVING SUM(attacks_used) > 0 AND SUM(capital_destroyed) > 0
+            ORDER BY avg_per_attack DESC LIMIT 8
+        `, [seasonStart.toISOString().split('T')[0]]);
+        
+        for (let i = 0; i < capitalAvg.rows.length; i++) {
+            const points = NORMAL_POINTS[i + 1] || 0;
+            await pool.query(`
+                INSERT INTO player_scores (player_tag, capital_points, season_month)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (player_tag, season_month)
+                DO UPDATE SET capital_points = COALESCE(player_scores.capital_points, 0) + $2
+            `, [capitalAvg.rows[i].player_tag, points, month]);
+        }
+        
+        console.log(`      ✅ Top ${capitalAvg.rows.length} calculados`);
+    }
+    
+    // 5. GUERRAS - TOTAL ESTRELLAS
+    async calculateWarTotal(month, seasonStart) {
+        console.log('   ⭐ 5. Guerras (Total Estrellas) [Normal 10-8-6-5-4-3-2-1]...');
+        
+        const topWars = await pool.query(`
+            SELECT player_tag, SUM(stars) as total_stars
+            FROM wars 
+            WHERE war_date >= $1 AND war_type = 'regular' AND player_tag != 'CLAN_SUMMARY'
+            GROUP BY player_tag
+            HAVING SUM(stars) > 0
+            ORDER BY total_stars DESC LIMIT 8
+        `, [seasonStart]);
+        
+        for (let i = 0; i < topWars.rows.length; i++) {
+            const points = NORMAL_POINTS[i + 1] || 0;
+            await pool.query(`
+                INSERT INTO player_scores (player_tag, war_points, season_month)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (player_tag, season_month)
+                DO UPDATE SET war_points = $2
+            `, [topWars.rows[i].player_tag, points, month]);
+        }
+        
+        console.log(`      ✅ Top ${topWars.rows.length} calculados`);
+    }
+    
+    // 6. GUERRAS - PROMEDIO REAL ⭐ NUEVO
+    async calculateWarAverage(month, seasonStart) {
+        console.log('   📈 6. Guerras (Promedio Real) [Normal 10-8-6-5-4-3-2-1]...');
+        
+        const warAvg = await pool.query(`
+            SELECT 
+                player_tag,
+                SUM(stars) as total_stars,
+                COUNT(DISTINCT war_tag) as total_wars,
+                (SUM(stars)::float / (COUNT(DISTINCT war_tag) * 6)) as avg_real
+            FROM wars 
+            WHERE war_date >= $1 AND war_type = 'regular' AND player_tag != 'CLAN_SUMMARY'
+            GROUP BY player_tag
+            HAVING COUNT(DISTINCT war_tag) > 0 AND SUM(stars) > 0
+            ORDER BY avg_real DESC LIMIT 8
+        `, [seasonStart]);
+        
+        for (let i = 0; i < warAvg.rows.length; i++) {
+            const points = NORMAL_POINTS[i + 1] || 0;
+            await pool.query(`
+                INSERT INTO player_scores (player_tag, war_points, season_month)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (player_tag, season_month)
+                DO UPDATE SET war_points = COALESCE(player_scores.war_points, 0) + $2
+            `, [warAvg.rows[i].player_tag, points, month]);
+        }
+        
+        console.log(`      ✅ Top ${warAvg.rows.length} calculados`);
+    }
+    
+    // 7. COPAS - TROFEOS
+    async calculateTrophies(month) {
+        console.log('   🏆 7. Copas (Trofeos) [Normal 10-8-6-5-4-3-2-1]...');
+        
+        const topTrophies = await pool.query(`
+            SELECT player_tag, season_points 
+            FROM season_events 
+            WHERE season_month = $1 AND season_points > 0
+            ORDER BY season_points DESC LIMIT 8
+        `, [month]);
+        
+        for (let i = 0; i < topTrophies.rows.length; i++) {
+            const points = NORMAL_POINTS[i + 1] || 0;
+            await pool.query(`
+                INSERT INTO player_scores (player_tag, trophy_points, season_month)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (player_tag, season_month)
+                DO UPDATE SET trophy_points = $2
+            `, [topTrophies.rows[i].player_tag, points, month]);
+        }
+        
+        console.log(`      ✅ Top ${topTrophies.rows.length} calculados`);
+    }
+    
+    // 8. CWL 💎 PREMIUM
+    async calculateCWLPremium(month, seasonStart) {
+        console.log('   💎 8. CWL (Liga de Guerras) [PREMIUM 20-16-12-10-8-6-4-2]...');
+        
+        const seasonCode = seasonStart.toISOString().substring(0, 7);
+        
+        const topCWL = await pool.query(`
+            SELECT player_tag, SUM(stars) as total_stars
+            FROM cwl_wars 
+            WHERE cwl_season >= $1
+            GROUP BY player_tag
+            HAVING SUM(stars) > 0
+            ORDER BY total_stars DESC LIMIT 8
+        `, [seasonCode]);
+        
+        for (let i = 0; i < topCWL.rows.length; i++) {
+            const points = PREMIUM_POINTS[i + 1] || 0;
+            await pool.query(`
+                INSERT INTO player_scores (player_tag, cwl_points, season_month)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (player_tag, season_month)
+                DO UPDATE SET cwl_points = $2
+            `, [topCWL.rows[i].player_tag, points, month]);
+        }
+        
+        console.log(`      ✅ Top ${topCWL.rows.length} calculados`);
+    }
+    
+    // 9. CLAN GAMES 💎 PREMIUM
+    async calculateClanGamesPremium(month, seasonStart) {
+        console.log('   💎 9. Clan Games (Juegos del Clan) [PREMIUM 20-16-12-10-8-6-4-2]...');
+        
         const topClanGames = await pool.query(`
             SELECT se.player_tag, 
                 GREATEST(0, se.clan_games_points - COALESCE(baseline.clan_games_points, 0)) as season_points
@@ -548,7 +699,7 @@ class AccumulativeClashUpdater {
         `, [month, seasonStart.toISOString().split('T')[0]]);
         
         for (let i = 0; i < topClanGames.rows.length; i++) {
-            const points = POINTS_SYSTEM[i + 1] || 0;
+            const points = PREMIUM_POINTS[i + 1] || 0;
             await pool.query(`
                 INSERT INTO player_scores (player_tag, event_points, season_month)
                 VALUES ($1, $2, $3)
@@ -556,75 +707,8 @@ class AccumulativeClashUpdater {
                 DO UPDATE SET event_points = $2
             `, [topClanGames.rows[i].player_tag, points, month]);
         }
-    }
-    
-    async calculateTrophies(month) {
-        console.log('   🏆 Top 8 Copas...');
         
-        const topTrophies = await pool.query(`
-            SELECT player_tag, season_points 
-            FROM season_events 
-            WHERE season_month = $1 AND season_points > 0
-            ORDER BY season_points DESC LIMIT 8
-        `, [month]);
-        
-        for (let i = 0; i < topTrophies.rows.length; i++) {
-            const points = POINTS_SYSTEM[i + 1] || 0;
-            await pool.query(`
-                INSERT INTO player_scores (player_tag, trophy_points, season_month)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (player_tag, season_month)
-                DO UPDATE SET trophy_points = $2
-            `, [topTrophies.rows[i].player_tag, points, month]);
-        }
-    }
-    
-    async calculateWarAccumulative(month, seasonStart) {
-        console.log('   ⚔️ Top 8 Guerras ACUMULATIVO...');
-        
-        const topWars = await pool.query(`
-            SELECT player_tag, SUM(stars) as total_stars
-            FROM wars 
-            WHERE war_date >= $1 AND war_type = 'regular' AND player_tag != 'CLAN_SUMMARY'
-            GROUP BY player_tag
-            HAVING SUM(stars) > 0
-            ORDER BY total_stars DESC LIMIT 8
-        `, [seasonStart]);
-        
-        for (let i = 0; i < topWars.rows.length; i++) {
-            const points = POINTS_SYSTEM[i + 1] || 0;
-            await pool.query(`
-                INSERT INTO player_scores (player_tag, war_points, season_month)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (player_tag, season_month)
-                DO UPDATE SET war_points = $2
-            `, [topWars.rows[i].player_tag, points, month]);
-        }
-    }
-    
-    async calculateCWLAccumulative(month, seasonStart) {
-        console.log('   🏆 Top 8 CWL ACUMULATIVO...');
-        
-        const seasonCode = seasonStart.toISOString().substring(0, 7);
-        
-        const topCWL = await pool.query(`
-            SELECT player_tag, SUM(stars) as total_stars
-            FROM cwl_wars 
-            WHERE cwl_season >= $1
-            GROUP BY player_tag
-            HAVING SUM(stars) > 0
-            ORDER BY total_stars DESC LIMIT 8
-        `, [seasonCode]);
-        
-        for (let i = 0; i < topCWL.rows.length; i++) {
-            const points = POINTS_SYSTEM[i + 1] || 0;
-            await pool.query(`
-                INSERT INTO player_scores (player_tag, cwl_points, season_month)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (player_tag, season_month)
-                DO UPDATE SET cwl_points = $2
-            `, [topCWL.rows[i].player_tag, points, month]);
-        }
+        console.log(`      ✅ Top ${topClanGames.rows.length} calculados`);
     }
     
     async calculateFinalTotals(month) {

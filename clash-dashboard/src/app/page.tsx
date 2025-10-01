@@ -31,6 +31,7 @@ interface WarData {
   total_stars: number;
   attacks_used: number;
   wars_participated: number;
+  avg_real: number;
 }
 
 interface CapitalData {
@@ -70,6 +71,8 @@ export default function Dashboard() {
   const [showOnlyTop8, setShowOnlyTop8] = useState(false);
   const [activeTab, setActiveTab] = useState('rankings');
   const [donationSortBy, setDonationSortBy] = useState('balance');
+  const [warSortBy, setWarSortBy] = useState('total');
+  const [capitalSortBy, setCapitalSortBy] = useState('total');
 
   useEffect(() => {
     fetchData();
@@ -133,12 +136,14 @@ export default function Dashboard() {
       setLoading(true);
       
       const donationsUrl = `/api/donations?sort=${donationSortBy}`;
+      const warsUrl = `/api/wars?sort=${warSortBy}`;
+      const capitalUrl = `/api/capital?sort=${capitalSortBy}`;
       
       const [playersRes, donationsRes, warsRes, capitalRes, cwlRes, eventsRes] = await Promise.all([
         fetch('/api/players'),
         fetch(donationsUrl),
-        fetch('/api/wars'),
-        fetch('/api/capital'),
+        fetch(warsUrl),
+        fetch(capitalUrl),
         fetch('/api/cwl'),
         fetch('/api/events')
       ]);
@@ -166,7 +171,6 @@ export default function Dashboard() {
     }
   };
 
-  // Refetch donations when sort changes
   useEffect(() => {
     if (!loading) {
       const fetchDonations = async () => {
@@ -181,6 +185,36 @@ export default function Dashboard() {
       fetchDonations();
     }
   }, [donationSortBy, loading]);
+
+  useEffect(() => {
+    if (!loading) {
+      const fetchWars = async () => {
+        try {
+          const response = await fetch(`/api/wars?sort=${warSortBy}`);
+          const data = await response.json();
+          setWars(data || []);
+        } catch (error) {
+          console.error('Error fetching wars:', error);
+        }
+      };
+      fetchWars();
+    }
+  }, [warSortBy, loading]);
+
+  useEffect(() => {
+    if (!loading) {
+      const fetchCapital = async () => {
+        try {
+          const response = await fetch(`/api/capital?sort=${capitalSortBy}`);
+          const data = await response.json();
+          setCapital(data || []);
+        } catch (error) {
+          console.error('Error fetching capital:', error);
+        }
+      };
+      fetchCapital();
+    }
+  }, [capitalSortBy, loading]);
 
   const getInactiveDays = (lastSeen: string) => {
     const lastSeenDate = new Date(lastSeen);
@@ -222,7 +256,6 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      {/* Header */}
       <header className="bg-gray-800 shadow-lg border-b border-gray-700">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
@@ -267,7 +300,6 @@ export default function Dashboard() {
       </header>
 
       <div className="container mx-auto px-6 py-8">
-        {/* Tabs */}
         <div className="mb-8">
           <div className="flex flex-wrap gap-1 bg-gray-800 p-1 rounded-lg">
             {tabs.map((tab) => (
@@ -286,13 +318,19 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Rankings Tab */}
         {activeTab === 'rankings' && (
           <div>
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-yellow-400">
-                🏆 Ranking General de Puntos (7 Categorías)
-              </h2>
+              <div>
+                <h2 className="text-2xl font-bold text-yellow-400">
+                  🏆 Ranking General de Puntos (9 Categorías)
+                </h2>
+                <div className="text-sm text-gray-400 mt-2">
+                  ⭐ Normal (7): Donaciones×2, Capital×2, Guerras×2, Copas×1 = 10-8-6-5-4-3-2-1 pts
+                  <span className="mx-2">|</span>
+                  💎 Premium (2): CWL×1, Clan Games×1 = 20-16-12-10-8-6-4-2 pts
+                </div>
+              </div>
               <div className="flex items-center space-x-4">
                 <label className="flex items-center space-x-2 text-gray-300">
                   <input
@@ -314,10 +352,10 @@ export default function Dashboard() {
                     <th className="px-6 py-4 text-left">Estado</th>
                     <th className="px-6 py-4 text-left">Jugador</th>
                     <th className="px-6 py-4 text-center">Donaciones</th>
-                    <th className="px-6 py-4 text-center">Clan Games</th>
+                    <th className="px-6 py-4 text-center">Clan Games 💎</th>
                     <th className="px-6 py-4 text-center">Copas</th>
                     <th className="px-6 py-4 text-center">Guerras</th>
-                    <th className="px-6 py-4 text-center">CWL</th>
+                    <th className="px-6 py-4 text-center">CWL 💎</th>
                     <th className="px-6 py-4 text-center">Capital</th>
                     <th className="px-6 py-4 text-center font-bold">TOTAL</th>
                     <th className="px-6 py-4 text-center">Ingreso</th>
@@ -344,10 +382,10 @@ export default function Dashboard() {
                         </div>
                       </td>
                       <td className="px-6 py-4 text-center">{player.donation_points || 0}</td>
-                      <td className="px-6 py-4 text-center">{player.event_points || 0}</td>
+                      <td className="px-6 py-4 text-center text-purple-400 font-semibold">{player.event_points || 0}</td>
                       <td className="px-6 py-4 text-center">{player.trophy_points || 0}</td>
                       <td className="px-6 py-4 text-center">{player.war_points || 0}</td>
-                      <td className="px-6 py-4 text-center">{player.cwl_points || 0}</td>
+                      <td className="px-6 py-4 text-center text-purple-400 font-semibold">{player.cwl_points || 0}</td>
                       <td className="px-6 py-4 text-center">{player.capital_points || 0}</td>
                       <td className="px-6 py-4 text-center font-bold text-yellow-400 text-lg">
                         {player.total_points || 0}
@@ -363,7 +401,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Donations Tab */}
         {activeTab === 'donations' && (
           <div>
             <div className="flex items-center justify-between mb-6">
@@ -446,12 +483,23 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Wars Tab */}
         {activeTab === 'wars' && (
           <div>
-            <h2 className="text-2xl font-bold text-red-400 mb-6">
-              ⚔️ Guerras Normales (Acumulativo)
-            </h2>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-red-400">
+                ⚔️ Guerras Normales (Acumulativo)
+              </h2>
+              <div className="flex items-center space-x-4">
+                <select
+                  value={warSortBy}
+                  onChange={(e) => setWarSortBy(e.target.value)}
+                  className="bg-gray-700 text-white px-3 py-2 rounded-lg"
+                >
+                  <option value="total">Ordenar por Total Estrellas</option>
+                  <option value="average">Ordenar por Promedio Real</option>
+                </select>
+              </div>
+            </div>
             
             <div className="bg-gray-800 rounded-lg overflow-hidden shadow-xl">
               <table className="w-full">
@@ -462,7 +510,7 @@ export default function Dashboard() {
                     <th className="px-6 py-4 text-center">Estrellas</th>
                     <th className="px-6 py-4 text-center">Ataques</th>
                     <th className="px-6 py-4 text-center">Guerras</th>
-                    <th className="px-6 py-4 text-center">Promedio</th>
+                    <th className="px-6 py-4 text-center">Promedio Real</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-700">
@@ -475,8 +523,8 @@ export default function Dashboard() {
                       </td>
                       <td className="px-6 py-4 text-center">{player.attacks_used || 0}</td>
                       <td className="px-6 py-4 text-center">{player.wars_participated || 0}</td>
-                      <td className="px-6 py-4 text-center">
-                        {(player.attacks_used || 0) > 0 ? ((player.total_stars || 0) / (player.attacks_used || 1)).toFixed(1) : '0.0'}
+                      <td className="px-6 py-4 text-center text-green-400 font-bold">
+                        {((player.avg_real || 0) * 100).toFixed(1)}%
                       </td>
                     </tr>
                   ))}
@@ -486,11 +534,10 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* CWL Tab */}
         {activeTab === 'cwl' && (
           <div>
             <h2 className="text-2xl font-bold text-purple-400 mb-6">
-              🏆 Liga de Guerras (CWL) - Temporada Actual
+              🏆 Liga de Guerras (CWL) - Temporada Actual 💎
             </h2>
             
             <div className="bg-gray-800 rounded-lg overflow-hidden shadow-xl">
@@ -540,12 +587,23 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Capital Tab */}
         {activeTab === 'capital' && (
           <div>
-            <h2 className="text-2xl font-bold text-blue-400 mb-6">
-              🏰 Capital del Clan (Acumulativo)
-            </h2>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-blue-400">
+                🏰 Capital del Clan (Acumulativo)
+              </h2>
+              <div className="flex items-center space-x-4">
+                <select
+                  value={capitalSortBy}
+                  onChange={(e) => setCapitalSortBy(e.target.value)}
+                  className="bg-gray-700 text-white px-3 py-2 rounded-lg"
+                >
+                  <option value="total">Ordenar por Total Destruido</option>
+                  <option value="average">Ordenar por Promedio por Ataque</option>
+                </select>
+              </div>
+            </div>
             
             <div className="bg-gray-800 rounded-lg overflow-hidden shadow-xl">
               <table className="w-full">
@@ -580,11 +638,10 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Events Tab - Juegos del Clan */}
         {activeTab === 'events' && (
           <div>
             <h2 className="text-2xl font-bold text-green-400 mb-6">
-              🎯 Juegos del Clan (Clan Games)
+              🎯 Juegos del Clan (Clan Games) 💎
             </h2>
             
             <div className="bg-gray-800 rounded-lg overflow-hidden shadow-xl">
@@ -626,7 +683,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Trophies Tab - Copas/Liga */}
         {activeTab === 'trophies' && (
           <div>
             <h2 className="text-2xl font-bold text-purple-400 mb-6">
@@ -674,7 +730,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Legend */}
         <div className="mt-8 bg-gray-800 p-4 rounded-lg">
           <h3 className="font-bold mb-2">📋 Leyenda:</h3>
           <div className="grid md:grid-cols-3 gap-4 text-sm">
@@ -690,18 +745,18 @@ export default function Dashboard() {
             <div>
               <span className="bg-green-900/20 px-2 py-1 rounded">Verde</span> Top 8 con puntos
               <br />
-              <span className="text-yellow-400">📊 Sistema:</span> 7 categorías de puntuación
+              <span className="text-yellow-400">📊 Sistema Normal:</span> 10-8-6-5-4-3-2-1 pts
               <br />
-              <span className="text-blue-400">🎯 Clan Games:</span> Eventos mensuales
+              <span className="text-purple-400">💎 Sistema Premium:</span> 20-16-12-10-8-6-4-2 pts
               <br />
-              <span className="text-purple-400">🏆 Copas:</span> Trofeos actuales
+              <span className="text-blue-400">🎯 9 Categorías totales</span>
             </div>
             <div>
-              <span className="text-orange-400">⚔️ Guerras:</span> Acumulativo por temporada
+              <span className="text-orange-400">⚔️ Guerras:</span> Total + Promedio
               <br />
-              <span className="text-purple-400">🏆 CWL:</span> Liga de Guerras
+              <span className="text-purple-400">🏆 CWL:</span> Liga (Premium)
               <br />
-              <span className="text-blue-400">🏰 Capital:</span> Fines de semana
+              <span className="text-blue-400">🏰 Capital:</span> Total + Promedio
               <br />
               <span className="text-green-400">🎁 Donaciones:</span> Cantidad + Balance
             </div>

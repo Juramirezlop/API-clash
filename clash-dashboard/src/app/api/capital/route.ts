@@ -1,12 +1,25 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { Pool } from 'pg';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url);
+    const sortBy = searchParams.get('sort') || 'total'; // 'total' o 'average'
+    
+    let orderByClause = '';
+    
+    if (sortBy === 'average') {
+      // Promedio por ataque
+      orderByClause = 'COALESCE(AVG(c.average_per_attack), 0) DESC';
+    } else {
+      // Total destruido
+      orderByClause = 'COALESCE(SUM(c.capital_destroyed), 0) DESC';
+    }
+    
     const query = `
       SELECT 
         p.player_name,
@@ -20,9 +33,7 @@ export async function GET() {
         AND c.weekend_date >= '2025-09-01'
       WHERE p.is_active = true
       GROUP BY p.player_name, p.player_tag
-      ORDER BY 
-        COALESCE(AVG(c.average_per_attack), 0) DESC,
-        p.player_name ASC
+      ORDER BY ${orderByClause}, p.player_name ASC
     `;
     
     const result = await pool.query(query);

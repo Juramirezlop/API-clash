@@ -1,29 +1,50 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { Pool } from 'pg';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url);
+    const sortBy = searchParams.get('sort') || 'total'; // 'total' o 'average'
+    
+    let orderByClause = '';
+    
+    if (sortBy === 'average') {
+      // Promedio real: estrellas / (guerras × 6)
+      orderByClause = `
+        CASE 
+          WHEN COUNT(DISTINCT w.war_tag) > 0 
+          THEN COALESCE(SUM(w.stars), 0)::decimal / (COUNT(DISTINCT w.war_tag) * 6)
+          ELSE 0 
+        END DESC
+      `;
+    } else {
+      // Total estrellas
+      orderByClause = 'COALESCE(SUM(w.stars), 0) DESC';
+    }
+    
     const query = `
       SELECT 
         p.player_name,
         p.player_tag,
-        COUNT(w.id) as wars_participated,
+        COUNT(DISTINCT w.war_tag) as wars_participated,
         COALESCE(SUM(w.stars), 0) as total_stars,
         COALESCE(SUM(w.attacks_used), 0) as attacks_used,
-        COALESCE(AVG(w.stars::decimal / NULLIF(w.attacks_used, 0)), 0) as avg_stars_per_attack
+        CASE 
+          WHEN COUNT(DISTINCT w.war_tag) > 0 
+          THEN COALESCE(SUM(w.stars), 0)::decimal / (COUNT(DISTINCT w.war_tag) * 6)
+          ELSE 0 
+        END as avg_real
       FROM players p
       LEFT JOIN wars w ON p.player_tag = w.player_tag 
         AND w.war_date >= '2025-09-01'
         AND w.war_type = 'regular'
       WHERE p.is_active = true
       GROUP BY p.player_name, p.player_tag
-      ORDER BY 
-        COALESCE(SUM(w.stars), 0) DESC,
-        p.player_name ASC
+      ORDER BY ${orderByClause}, p.player_name ASC
     `;
     
     const result = await pool.query(query);

@@ -9,10 +9,11 @@ export async function POST() {
     try {
         const resetDate = new Date();
         const currentMonth = resetDate.toISOString().substring(0, 7);
+        const resetDateStr = resetDate.toISOString().split('T')[0];
         
-        console.log('🔄 Iniciando reset de temporada...');
+        console.log('🔄 Iniciando reset COMPLETO de temporada...');
         
-        // 1. Crear backup
+        // 1. Crear backup de puntuaciones
         const backupSuffix = resetDate.toISOString().replace(/[-:]/g, '').substring(0, 13);
         
         await pool.query(`
@@ -20,14 +21,9 @@ export async function POST() {
             SELECT * FROM player_scores WHERE season_month = $1
         `, [currentMonth]);
         
-        // 2. Reset Clan Games a 0
-        await pool.query(`
-            UPDATE season_events 
-            SET clan_games_points = 0, clan_games_date = NULL
-            WHERE season_month = $1
-        `, [currentMonth]);
+        console.log(`💾 Backup creado: player_scores_backup_${backupSuffix}`);
         
-        // 3. Reset puntuaciones
+        // 2. Reset puntuaciones a 0
         await pool.query(`
             UPDATE player_scores 
             SET war_points = 0, cwl_points = 0, donation_points = 0, 
@@ -36,16 +32,52 @@ export async function POST() {
             WHERE season_month = $1
         `, [currentMonth]);
         
-        // 4. Insertar nueva configuración de temporada
+        console.log('✅ Puntuaciones reseteadas a 0');
+        
+        // 3. BORRAR TODOS los datos históricos de guerras (NO donaciones)
+        const deletedWars = await pool.query(`
+            DELETE FROM wars
+        `);
+        
+        console.log(`🗑️ Borradas TODAS las guerras: ${deletedWars.rowCount} registros`);
+        
+        // 4. BORRAR TODOS los datos de capital raids
+        const deletedCapital = await pool.query(`
+            DELETE FROM capital_raids
+        `);
+        
+        console.log(`🗑️ Borrados TODOS los registros de capital: ${deletedCapital.rowCount}`);
+        
+        // 5. BORRAR TODOS los datos de CWL
+        const deletedCWL = await pool.query(`
+            DELETE FROM cwl_wars
+        `);
+        
+        console.log(`🗑️ Borrados TODOS los registros de CWL: ${deletedCWL.rowCount}`);
+        
+        // 6. Reset Clan Games a 0 y borrar fechas
+        await pool.query(`
+            UPDATE season_events 
+            SET clan_games_points = 0, clan_games_date = NULL
+            WHERE season_month = $1
+        `, [currentMonth]);
+        
+        console.log('✅ Clan Games reseteado a 0 (fechas limpiadas)');
+        
+        // 7. Insertar nueva configuración de temporada
         await pool.query(`
             INSERT INTO season_config (season_start_date, season_name) 
             VALUES ($1, $2)
-        `, [resetDate, `Reset ${resetDate.toLocaleDateString()}`]);
+        `, [resetDate, `Temporada ${resetDate.toLocaleDateString('es-ES')}`]);
         
-        // 5. Obtener conteo de jugadores
+        console.log('✅ Nueva temporada configurada');
+        
+        // 8. Obtener conteo de jugadores activos
         const activePlayersCount = await pool.query(`
             SELECT COUNT(*) FROM players WHERE is_active = true
         `);
+        
+        console.log(`👥 ${activePlayersCount.rows[0].count} jugadores activos`);
         
         return NextResponse.json({
             success: true,
@@ -53,12 +85,15 @@ export async function POST() {
             data: {
                 reset_date: resetDate.toISOString(),
                 backup_table: `player_scores_backup_${backupSuffix}`,
-                players_reset: activePlayersCount.rows[0].count
+                players_reset: activePlayersCount.rows[0].count,
+                deleted_wars: deletedWars.rowCount,
+                deleted_capital: deletedCapital.rowCount,
+                deleted_cwl: deletedCWL.rowCount
             }
         });
         
     } catch (error) {
-        console.error('Error en reset:', error);
+        console.error('❌ Error en reset:', error);
         const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
         return NextResponse.json(
             { 
