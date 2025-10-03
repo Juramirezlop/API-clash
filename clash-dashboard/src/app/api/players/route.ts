@@ -7,10 +7,8 @@ const pool = new Pool({
 
 export async function GET() {
   try {
-    // Obtener el mes actual para las puntuaciones
-    const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
+    const currentMonth = new Date().toISOString().substring(0, 7);
     
-    // Query corregido: JOIN con player_scores
     const result = await pool.query(`
       SELECT 
         p.player_tag,
@@ -24,6 +22,12 @@ export async function GET() {
         COALESCE(ps.war_points, 0) as war_points,
         COALESCE(ps.cwl_points, 0) as cwl_points,
         COALESCE(ps.capital_points, 0) as capital_points,
+        COALESCE(ps.donation_penalty, 0) as donation_penalty,
+        COALESCE(ps.war_penalty, 0) as war_penalty,
+        COALESCE(ps.capital_penalty, 0) as capital_penalty,
+        COALESCE(ps.cwl_penalty, 0) as cwl_penalty,
+        COALESCE(ps.clan_games_penalty, 0) as clan_games_penalty,
+        COALESCE(ps.total_penalties, 0) as total_penalties,
         COALESCE(ps.total_points, 0) as total_points
       FROM players p
       LEFT JOIN player_scores ps ON p.player_tag = ps.player_tag 

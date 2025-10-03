@@ -12,6 +12,12 @@ interface Player {
   cwl_points: number;
   capital_points: number;
   total_points: number;
+  donation_penalty: number;
+  war_penalty: number;
+  capital_penalty: number;
+  cwl_penalty: number;
+  clan_games_penalty: number;
+  total_penalties: number;
   is_active: boolean;
   last_seen: string;
   join_date: string;
@@ -225,11 +231,12 @@ export default function Dashboard() {
   };
 
   const getActivityIcon = (lastSeen: string, isActive: boolean) => {
-    if (!isActive) return '⚫';
+    if (!isActive) return '🔴'; // Ya no usa negro, solo rojo para inactivos del clan
     const days = getInactiveDays(lastSeen);
-    if (days >= 5) return '🔴';
-    if (days >= 3) return '🟡';
-    return '🟢';
+    if (days >= 5) return '🔴';      // 5+ días = Rojo
+    if (days >= 3) return '🟠';      // 3-5 días = Naranja
+    if (days >= 1) return '🟡';      // 1-2 días = Amarillo
+    return '🟢';                      // Menos de 1 día = Verde
   };
 
   const filteredPlayers = showOnlyTop8 
@@ -246,6 +253,7 @@ export default function Dashboard() {
 
   const tabs = [
     { id: 'rankings', label: '🏆 Rankings' },
+    { id: 'penalties', label: '⚠️ Penalizaciones' },
     { id: 'donations', label: '🎁 Donaciones' },
     { id: 'wars', label: '⚔️ Guerras' },
     { id: 'cwl', label: '🏆 Liga CWL' },
@@ -357,6 +365,7 @@ export default function Dashboard() {
                     <th className="px-6 py-4 text-center">Guerras</th>
                     <th className="px-6 py-4 text-center">CWL 💎</th>
                     <th className="px-6 py-4 text-center">Capital</th>
+                    <th className="px-6 py-4 text-center text-red-400">Penaliz.</th>
                     <th className="px-6 py-4 text-center font-bold">TOTAL</th>
                     <th className="px-6 py-4 text-center">Ingreso</th>
                   </tr>
@@ -366,7 +375,11 @@ export default function Dashboard() {
                     <tr 
                       key={`ranking-${player.player_tag}`}
                       className={`hover:bg-gray-700 transition-colors ${
-                        index < 8 && player.total_points > 0 ? 'bg-green-900/20' : ''
+                        index < 8 && player.total_points > 0 
+                          ? 'bg-green-900/20' 
+                          : (player.total_points || 0) < 0 
+                            ? 'bg-red-900/20' 
+                            : ''
                       }`}
                     >
                       <td className="px-6 py-4 font-bold text-yellow-400">
@@ -387,6 +400,13 @@ export default function Dashboard() {
                       <td className="px-6 py-4 text-center">{player.war_points || 0}</td>
                       <td className="px-6 py-4 text-center text-purple-400 font-semibold">{player.cwl_points || 0}</td>
                       <td className="px-6 py-4 text-center">{player.capital_points || 0}</td>
+                      <td className="px-6 py-4 text-center">
+                        <span className={`font-bold ${
+                          (player.total_penalties || 0) < 0 ? 'text-red-400' : 'text-gray-500'
+                        }`}>
+                          {player.total_penalties || 0}
+                        </span>
+                      </td>
                       <td className="px-6 py-4 text-center font-bold text-yellow-400 text-lg">
                         {player.total_points || 0}
                       </td>
@@ -734,13 +754,13 @@ export default function Dashboard() {
           <h3 className="font-bold mb-2">📋 Leyenda:</h3>
           <div className="grid md:grid-cols-3 gap-4 text-sm">
             <div>
-              <span className="text-2xl">🟢</span> Activo (menos de 3 días)
+              <span className="text-2xl">🟢</span> Activo (menos de 1 día)
               <br />
-              <span className="text-2xl">🟡</span> Advertencia (3-4 días)
+              <span className="text-2xl">🟡</span> Advertencia (1-2 días)
               <br />
-              <span className="text-2xl">🔴</span> Inactivo (+5 días)
+              <span className="text-2xl">🟠</span> Inactivo (3-5 días)
               <br />
-              <span className="text-2xl">⚫</span> Fuera del clan
+              <span className="text-2xl">🔴</span> Muy inactivo (+5 días o fuera del clan)
             </div>
             <div>
               <span className="bg-green-900/20 px-2 py-1 rounded">Verde</span> Top 8 con puntos
