@@ -143,24 +143,35 @@ class AccumulativeClashUpdater {
         const today = new Date().toISOString().split('T')[0];
         const currentMonth = new Date().toISOString().substring(0, 7);
         
-        const lastDonations = await pool.query(`
-            SELECT donations_given 
-            FROM donations 
-            WHERE player_tag = $1 
-            ORDER BY recorded_at DESC 
+        const lastActivity = await pool.query(`
+            SELECT d.donations_given, se.season_points as trophies
+            FROM donations d
+            LEFT JOIN season_events se ON d.player_tag = se.player_tag
+            WHERE d.player_tag = $1 
+            ORDER BY d.recorded_at DESC 
             LIMIT 1
         `, [cleanTag]);
-        
+
         const currentDonations = playerData.donations || 0;
-        const previousDonations = lastDonations.rows.length > 0 ? lastDonations.rows[0].donations_given : 0;
-        
-        if (currentDonations > previousDonations) {
+        const currentTrophies = playerData.trophies || 0;
+
+        const previousDonations = lastActivity.rows.length > 0 ? lastActivity.rows[0].donations_given : 0;
+        const previousTrophies = lastActivity.rows.length > 0 ? (lastActivity.rows[0].trophies || 0) : 0;
+
+        // Detectar actividad si cambiaron donaciones O copas
+        if (currentDonations > previousDonations || currentTrophies !== previousTrophies) {
             await pool.query(`
                 UPDATE players 
                 SET last_seen = NOW() 
                 WHERE player_tag = $1
             `, [cleanTag]);
-            console.log(`   🟢 Actividad detectada: ${previousDonations} → ${currentDonations} donaciones`);
+            
+            if (currentDonations > previousDonations) {
+                console.log(`   🟢 Donaciones: ${previousDonations} → ${currentDonations}`);
+            }
+            if (currentTrophies !== previousTrophies) {
+                console.log(`   🟢 Copas: ${previousTrophies} → ${currentTrophies}`);
+            }
         }
         
         await pool.query(`
@@ -729,7 +740,10 @@ class AccumulativeClashUpdater {
         await this.calculateWarPenalties(currentMonth, seasonStart);
         await this.calculateCapitalPenalties(currentMonth, seasonStart);
         await this.calculateCWLPenalties(currentMonth, seasonStart);
-        await this.calculateClanGamesPenalties(currentMonth);
+        const skipped = await this.calculateClanGamesPenalties(currentMonth);
+        if (skipped) {
+            console.log('   ✅ Clan Games saltados correctamente');
+        }
         await this.calculateFinalTotals(currentMonth);
     }
     
@@ -904,68 +918,82 @@ class AccumulativeClashUpdater {
         
         const minDaysInClan = 7;
         
-        const clanGamesData = await pool.query(`
-            SELECT 
-                se.player_tag,
-                se.clan_games_points,
-                p.join_date
-            FROM season_events se
-            JOIN players p ON se.player_tag = p.player_tag
-            WHERE se.season_month = $1
-            AND p.is_active = true
-            AND p.join_date <= NOW() - INTERVAL '${minDaysInClan} days'
+        // Verificar si hay al menos UN jugador con puntos de Clan Games
+        const hasActiveClanGames = await pool.query(`
+            SELECT COUNT(*) as count
+            FROM season_events
+            WHERE season_month = $1
+            AND clan_games_points > 0
         `, [month]);
         
-        for (const player of clanGamesData.rows) {
-            let penalty = 0;
+        // Cambiar lógica: solo ejecutar SI hay datos
+        if (hasActiveClanGames.rows[0].count > 0) {
+            const clanGamesData = await pool.query(`
+                SELECT 
+                    se.player_tag,
+                    se.clan_games_points,
+                    p.join_date
+                FROM season_events se
+                JOIN players p ON se.player_tag = p.player_tag
+                WHERE se.season_month = $1
+                AND p.is_active = true
+                AND p.join_date <= NOW() - INTERVAL '${minDaysInClan} days'
+            `, [month]);
             
-            if (player.clan_games_points === 0) {
-                penalty = -5;
-            } else if (player.clan_games_points < 1000) {
-                penalty = -2;
+            for (const player of clanGamesData.rows) {
+                let penalty = 0;
+                
+                if (player.clan_games_points === 0) {
+                    penalty = -5;
+                } else if (player.clan_games_points < 1000) {
+                    penalty = -2;
+                }
+                
+                if (penalty < 0) {
+                    await pool.query(`
+                        INSERT INTO player_scores (player_tag, clan_games_penalty, season_month)
+                        VALUES ($1, $2, $3)
+                        ON CONFLICT (player_tag, season_month)
+                        DO UPDATE SET clan_games_penalty = $2
+                    `, [player.player_tag, penalty, month]);
+                }
             }
             
-            if (penalty < 0) {
-                await pool.query(`
-                    INSERT INTO player_scores (player_tag, clan_games_penalty, season_month)
-                    VALUES ($1, $2, $3)
-                    ON CONFLICT (player_tag, season_month)
-                    DO UPDATE SET clan_games_penalty = $2
-                `, [player.player_tag, penalty, month]);
-            }
+            console.log(`      ⚠️ Penalizaciones de Clan Games aplicadas`);
+        } else {
+            console.log('      ⏭️ Clan Games no cargados aún, saltando penalizaciones');
         }
-        
-        console.log(`      ⚠️ Penalizaciones de Clan Games aplicadas`);
     }
     
     async calculateFinalTotals(month) {
         console.log('   🏆 Calculando totales finales (con penalizaciones)...');
         
+        // 1. Calcular total_penalties (suma de todas las penalizaciones)
         await pool.query(`
             UPDATE player_scores 
             SET total_penalties = COALESCE(donation_penalty, 0) + 
-                                 COALESCE(war_penalty, 0) + 
-                                 COALESCE(capital_penalty, 0) + 
-                                 COALESCE(cwl_penalty, 0) + 
-                                 COALESCE(clan_games_penalty, 0),
-                total_points = COALESCE(war_points, 0) + COALESCE(cwl_points, 0) + 
-                              COALESCE(donation_points, 0) + COALESCE(capital_points, 0) + 
-                              COALESCE(event_points, 0) + COALESCE(trophy_points, 0) +
-                              COALESCE(donation_penalty, 0) + 
-                              COALESCE(war_penalty, 0) + 
-                              COALESCE(capital_penalty, 0) + 
-                              COALESCE(cwl_penalty, 0) + 
-                              COALESCE(clan_games_penalty, 0),
-                last_updated = NOW()
+                                COALESCE(war_penalty, 0) + 
+                                COALESCE(capital_penalty, 0) + 
+                                COALESCE(cwl_penalty, 0) + 
+                                COALESCE(clan_games_penalty, 0)
             WHERE season_month = $1
         `, [month]);
         
-        const totalPlayersWithPoints = await pool.query(`
-            SELECT COUNT(*) as count FROM player_scores 
-            WHERE season_month = $1 AND (total_points != 0 OR total_penalties != 0)
+        // 2. Calcular total_points (suma de puntos + penalizaciones)
+        await pool.query(`
+            UPDATE player_scores 
+            SET total_points = 
+                COALESCE(donation_points, 0) + 
+                COALESCE(event_points, 0) + 
+                COALESCE(trophy_points, 0) + 
+                COALESCE(war_points, 0) + 
+                COALESCE(cwl_points, 0) + 
+                COALESCE(capital_points, 0) + 
+                COALESCE(total_penalties, 0)
+            WHERE season_month = $1
         `, [month]);
         
-        console.log(`   ✅ ${totalPlayersWithPoints.rows[0].count} jugadores con puntuaciones calculadas`);
+        console.log('      ✅ Totales finales calculados correctamente');
     }
     
     generateWarTag(cocTimestamp, clanTag) {

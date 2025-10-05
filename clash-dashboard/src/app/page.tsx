@@ -65,6 +65,17 @@ interface EventData {
   clan_games_points: number;
 }
 
+interface PenaltyData {
+  player_tag: string;
+  player_name: string;
+  donation_penalty: number;
+  war_penalty: number;
+  capital_penalty: number;
+  cwl_penalty: number;
+  clan_games_penalty: number;
+  total_penalties: number;
+}
+
 export default function Dashboard() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [donations, setDonations] = useState<DonationStats[]>([]);
@@ -72,6 +83,7 @@ export default function Dashboard() {
   const [capital, setCapital] = useState<CapitalData[]>([]);
   const [cwl, setCwl] = useState<CWLData[]>([]);
   const [events, setEvents] = useState<EventData[]>([]);
+  const [penalties, setPenalties] = useState<PenaltyData[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [showOnlyTop8, setShowOnlyTop8] = useState(false);
@@ -145,8 +157,9 @@ export default function Dashboard() {
       const warsUrl = `/api/wars?sort=${warSortBy}`;
       const capitalUrl = `/api/capital?sort=${capitalSortBy}`;
       
-      const [playersRes, donationsRes, warsRes, capitalRes, cwlRes, eventsRes] = await Promise.all([
+      const [playersRes, penaltiesRes, donationsRes, warsRes, capitalRes, cwlRes, eventsRes] = await Promise.all([
         fetch('/api/players'),
+        fetch('/api/penalties'),
         fetch(donationsUrl),
         fetch(warsUrl),
         fetch(capitalUrl),
@@ -154,8 +167,9 @@ export default function Dashboard() {
         fetch('/api/events')
       ]);
 
-      const [playersData, donationsData, warsData, capitalData, cwlData, eventsData] = await Promise.all([
+      const [playersData, penaltiesData, donationsData, warsData, capitalData, cwlData, eventsData] = await Promise.all([
         playersRes.json(),
+        penaltiesRes.json(),
         donationsRes.json(),
         warsRes.json(),
         capitalRes.json(),
@@ -164,6 +178,7 @@ export default function Dashboard() {
       ]);
 
       setPlayers(playersData || []);
+      setPenalties(penaltiesData || []);
       setDonations(donationsData || []);
       setWars(warsData || []);
       setCapital(capitalData || []);
@@ -226,17 +241,17 @@ export default function Dashboard() {
     const lastSeenDate = new Date(lastSeen);
     const now = new Date();
     const diffTime = Math.abs(now.getTime() - lastSeenDate.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;
   };
 
   const getActivityIcon = (lastSeen: string, isActive: boolean) => {
-    if (!isActive) return '🔴'; // Ya no usa negro, solo rojo para inactivos del clan
+    if (!isActive) return '🔴';
     const days = getInactiveDays(lastSeen);
-    if (days >= 5) return '🔴';      // 5+ días = Rojo
-    if (days >= 3) return '🟠';      // 3-5 días = Naranja
-    if (days >= 1) return '🟡';      // 1-2 días = Amarillo
-    return '🟢';                      // Menos de 1 día = Verde
+    if (days >= 5) return '🔴';
+    if (days >= 3) return '🟠';
+    if (days >= 1) return '🟡';
+    return '🟢';
   };
 
   const filteredPlayers = showOnlyTop8 
@@ -417,6 +432,150 @@ export default function Dashboard() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'penalties' && (
+          <div>
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold text-red-400">
+                ⚠️ Sistema de Penalizaciones
+              </h2>
+              <div className="text-sm text-gray-400 mt-2">
+                Solo se muestran jugadores con penalizaciones activas
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-5 gap-4 mb-6">
+              <div className="bg-gray-800 p-4 rounded-lg border-l-4 border-red-500">
+                <div className="text-2xl mb-2">💸</div>
+                <div className="text-xl font-bold text-red-400">
+                  {penalties.reduce((sum, p) => sum + Math.abs(p.donation_penalty), 0)}
+                </div>
+                <div className="text-gray-400 text-sm">Donaciones</div>
+              </div>
+              <div className="bg-gray-800 p-4 rounded-lg border-l-4 border-orange-500">
+                <div className="text-2xl mb-2">⚔️</div>
+                <div className="text-xl font-bold text-orange-400">
+                  {penalties.reduce((sum, p) => sum + Math.abs(p.war_penalty), 0)}
+                </div>
+                <div className="text-gray-400 text-sm">Guerras</div>
+              </div>
+              <div className="bg-gray-800 p-4 rounded-lg border-l-4 border-yellow-500">
+                <div className="text-2xl mb-2">🏰</div>
+                <div className="text-xl font-bold text-yellow-400">
+                  {penalties.reduce((sum, p) => sum + Math.abs(p.capital_penalty), 0)}
+                </div>
+                <div className="text-gray-400 text-sm">Capital</div>
+              </div>
+              <div className="bg-gray-800 p-4 rounded-lg border-l-4 border-purple-500">
+                <div className="text-2xl mb-2">🏆</div>
+                <div className="text-xl font-bold text-purple-400">
+                  {penalties.reduce((sum, p) => sum + Math.abs(p.cwl_penalty), 0)}
+                </div>
+                <div className="text-gray-400 text-sm">CWL</div>
+              </div>
+              <div className="bg-gray-800 p-4 rounded-lg border-l-4 border-pink-500">
+                <div className="text-2xl mb-2">🎯</div>
+                <div className="text-xl font-bold text-pink-400">
+                  {penalties.reduce((sum, p) => sum + Math.abs(p.clan_games_penalty), 0)}
+                </div>
+                <div className="text-gray-400 text-sm">Clan Games</div>
+              </div>
+            </div>
+
+            <div className="bg-gray-800 rounded-lg overflow-hidden shadow-xl">
+              <table className="w-full">
+                <thead className="bg-gray-700">
+                  <tr>
+                    <th className="px-6 py-4 text-left">Jugador</th>
+                    <th className="px-6 py-4 text-center">💸 Donaciones</th>
+                    <th className="px-6 py-4 text-center">⚔️ Guerras</th>
+                    <th className="px-6 py-4 text-center">🏰 Capital</th>
+                    <th className="px-6 py-4 text-center">🏆 CWL</th>
+                    <th className="px-6 py-4 text-center">🎯 Clan Games</th>
+                    <th className="px-6 py-4 text-center font-bold text-red-400">TOTAL</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-700">
+                  {penalties.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-6 py-12 text-center text-gray-400">
+                        🎉 ¡No hay penalizaciones activas! Todos los jugadores están al día.
+                      </td>
+                    </tr>
+                  ) : (
+                    penalties.map((penalty) => (
+                      <tr 
+                        key={`penalty-${penalty.player_tag}`}
+                        className="hover:bg-gray-700 transition-colors"
+                      >
+                        <td className="px-6 py-4 font-medium">
+                          {penalty.player_name}
+                          <div className="text-xs text-gray-400">
+                            #{penalty.player_tag}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={penalty.donation_penalty < 0 ? 'text-red-400 font-bold' : 'text-gray-500'}>
+                            {penalty.donation_penalty || 0}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={penalty.war_penalty < 0 ? 'text-orange-400 font-bold' : 'text-gray-500'}>
+                            {penalty.war_penalty || 0}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={penalty.capital_penalty < 0 ? 'text-yellow-400 font-bold' : 'text-gray-500'}>
+                            {penalty.capital_penalty || 0}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={penalty.cwl_penalty < 0 ? 'text-purple-400 font-bold' : 'text-gray-500'}>
+                            {penalty.cwl_penalty || 0}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={penalty.clan_games_penalty < 0 ? 'text-pink-400 font-bold' : 'text-gray-500'}>
+                            {penalty.clan_games_penalty || 0}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className="text-red-400 font-bold text-lg">
+                            {penalty.total_penalties}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-6 bg-gray-800 p-4 rounded-lg">
+              <h3 className="font-bold text-yellow-400 mb-3">📋 Reglas de Penalización:</h3>
+              <div className="grid md:grid-cols-2 gap-3 text-sm text-gray-300">
+                <div>
+                  <span className="text-red-400 font-bold">💸 Donaciones:</span> Top 5 peores balances negativos (-2 pts, -4 si &lt; -500)
+                </div>
+                <div>
+                  <span className="text-orange-400 font-bold">⚔️ Guerras:</span> -1 punto por cada ataque no usado
+                </div>
+                <div>
+                  <span className="text-yellow-400 font-bold">🏰 Capital:</span> -2 pts por fin de semana sin atacar, -1 pt si &lt;10k destruido
+                </div>
+                <div>
+                  <span className="text-purple-400 font-bold">🏆 CWL:</span> -5 puntos por no usar todos los ataques
+                </div>
+                <div>
+                  <span className="text-pink-400 font-bold">🎯 Clan Games:</span> -5 pts si 0 puntos, -2 pts si &lt;1000
+                </div>
+                <div className="text-gray-400">
+                  ⏰ Solo aplica a jugadores con más de 7 días en el clan
+                </div>
+              </div>
             </div>
           </div>
         )}
