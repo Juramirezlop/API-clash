@@ -144,13 +144,17 @@ class AccumulativeClashUpdater {
         const currentMonth = new Date().toISOString().substring(0, 7);
         
         const lastActivity = await pool.query(`
-            SELECT d.donations_given, se.season_points as trophies
+            SELECT 
+                d.donations_given,
+                se.season_points as trophies
             FROM donations d
-            LEFT JOIN season_events se ON d.player_tag = se.player_tag
+            LEFT JOIN season_events se 
+                ON d.player_tag = se.player_tag 
+                AND se.season_month = $2
             WHERE d.player_tag = $1 
             ORDER BY d.recorded_at DESC 
             LIMIT 1
-        `, [cleanTag]);
+        `, [cleanTag, currentMonth]);
 
         const currentDonations = playerData.donations || 0;
         const currentTrophies = playerData.trophies || 0;
@@ -174,6 +178,7 @@ class AccumulativeClashUpdater {
             }
         }
         
+        // Actualizar donaciones
         await pool.query(`
             INSERT INTO donations (player_tag, donations_given, donations_received, donation_ratio, recorded_at)
             VALUES ($1, $2, $3, $4, $5)
@@ -189,21 +194,16 @@ class AccumulativeClashUpdater {
             playerData.donationsReceived > 0 ? (playerData.donations / playerData.donationsReceived).toFixed(2) : 0,
             today
         ]);
-        
+
+        // Actualizar trofeos
         await pool.query(`
-            INSERT INTO season_events (player_tag, season_points, clan_games_points, clan_games_date, season_month)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO season_events (player_tag, season_points, season_month)
+            VALUES ($1, $2, $3)
             ON CONFLICT (player_tag, season_month)
             DO UPDATE SET 
-                season_points = $2,
-                clan_games_date = $4
-        `, [
-            cleanTag,
-            playerData.trophies || 0,
-            0,
-            today,
-            currentMonth
-        ]);
+                season_points = $2
+        `, [cleanTag, currentTrophies, currentMonth]);
+
     }
     
     async updateWarDataAccumulative(seasonStart) {
@@ -360,6 +360,23 @@ class AccumulativeClashUpdater {
                             capital_destroyed = $2,
                             attacks_used = $3
                     `, [cleanTag, totalDestroyed, estimatedAttacks, weekendDateStr]);
+                }
+                
+                const activePlayers = await pool.query(`
+                    SELECT player_tag FROM players WHERE is_active = true
+                `);
+                
+                for (const player of activePlayers.rows) {
+                    await pool.query(`
+                        INSERT INTO capital_raids_weekly (
+                            player_tag, 
+                            capital_destroyed, 
+                            attacks_used, 
+                            weekend_start_date
+                        )
+                        VALUES ($1, 0, 0, $2)
+                        ON CONFLICT (player_tag, weekend_start_date) DO NOTHING
+                    `, [player.player_tag, weekendDateStr]);
                 }
                 
                 if (processedSeasons >= 10) break;
