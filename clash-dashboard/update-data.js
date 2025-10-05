@@ -340,7 +340,10 @@ class AccumulativeClashUpdater {
                         )
                         VALUES ($1, $2, $3, $4, $5)
                         ON CONFLICT (player_tag, weekend_date)
-                        DO NOTHING
+                        DO UPDATE SET 
+                            capital_destroyed = $2,
+                            attacks_used = $3,
+                            average_per_attack = $4
                     `, [cleanTag, totalDestroyed, estimatedAttacks, avgPerAttack.toFixed(2), weekendDateStr]);
                     
                     // Guardar detalle semanal (tabla nueva para penalizaciones)
@@ -371,11 +374,11 @@ class AccumulativeClashUpdater {
     
     estimateAttacks(destroyed) {
         if (destroyed === 0) return 0;
-        if (destroyed <= 4000) return 1;
-        if (destroyed <= 8000) return 2;
-        if (destroyed <= 12000) return 3;
-        if (destroyed <= 16000) return 4;
-        if (destroyed <= 20000) return 5;
+        if (destroyed <= 3000) return 1;
+        if (destroyed <= 6500) return 2;
+        if (destroyed <= 10000) return 3;
+        if (destroyed <= 13500) return 4;
+        if (destroyed <= 17000) return 5;
         return 6;
     }
     
@@ -394,25 +397,26 @@ class AccumulativeClashUpdater {
             if (cwlData.rounds && cwlData.rounds.length > 0) {
                 for (let roundIndex = 0; roundIndex < cwlData.rounds.length; roundIndex++) {
                     const round = cwlData.rounds[roundIndex];
+                    const warTags = round?.warTags || [];
                     
-                    // Validar que round sea un array válido
-                    if (!round || !Array.isArray(round) || round.length === 0) {
+                    if (!warTags || warTags.length === 0 || warTags[0] === '#0') {
                         console.log(`   ⏭️ Ronda ${roundIndex + 1} sin datos disponibles (preparación)`);
                         continue;
                     }
                     
                     console.log(`   📊 Procesando ronda ${roundIndex + 1}`);
                     
-                    for (const warTag of round) {
+                    for (const warTag of warTags) {  
                         try {
-                            const warUrl = `https://api.clashofclans.com/v1/clanwarleagues/wars/${warTag}`;
+                            const encodedWarTag = encodeURIComponent(warTag);
+                            const warUrl = `https://api.clashofclans.com/v1/clanwarleagues/wars/${encodedWarTag}`;
                             const warResponse = await axios.get(warUrl, { headers });
                             const cwlWar = warResponse.data;
                             
                             const warDate = this.parseCoCSDate(cwlWar.startTime);
                             
                             if (warDate >= seasonStart) {
-                                const ourClan = cwlWar.clans.find(clan => clan.tag === `#${CLAN_TAG}`);
+                                const ourClan = cwlWar.clan?.tag === `#${CLAN_TAG}` ? cwlWar.clan : null;
                                 
                                 if (ourClan && ourClan.members) {
                                     for (const member of ourClan.members) {
@@ -883,6 +887,16 @@ class AccumulativeClashUpdater {
         
         const minDaysInClan = 7;
         
+        // Obtener la ronda máxima registrada
+        const currentRound = await pool.query(`
+            SELECT MAX(round_number) as max_round
+            FROM cwl_wars
+            WHERE cwl_season >= $1
+        `, [seasonStart.toISOString().substring(0, 7)]);
+        
+        const maxRound = currentRound.rows[0]?.max_round || 1;
+        
+        // Obtener jugadores en rondas COMPLETADAS (excluir última ronda)
         const cwlData = await pool.query(`
             SELECT 
                 c.player_tag,
@@ -892,14 +906,19 @@ class AccumulativeClashUpdater {
             FROM cwl_wars c
             JOIN players p ON c.player_tag = p.player_tag
             WHERE c.recorded_date >= $1
+            AND c.round_number < $2
             AND p.is_active = true
             AND p.join_date <= NOW() - INTERVAL '${minDaysInClan} days'
             GROUP BY c.player_tag, p.join_date
-        `, [seasonStart]);
+        `, [seasonStart, maxRound]);
         
         for (const player of cwlData.rows) {
-            if (player.rounds_participated > 0 && player.total_attacks < player.rounds_participated) {
-                const penalty = -5;
+            // Cada ronda = 1 ataque esperado
+            const expectedAttacks = player.rounds_participated;
+            const missedAttacks = expectedAttacks - player.total_attacks;
+            
+            if (missedAttacks > 0) {
+                const penalty = missedAttacks * -5; // -5 por cada ataque faltante
                 
                 await pool.query(`
                     INSERT INTO player_scores (player_tag, cwl_penalty, season_month)

@@ -304,6 +304,18 @@ export default function Dashboard() {
                 🎯 Admin Clan Games
               </button>
               <button
+                onClick={() => window.open('/admin/capital-edit', '_blank')}
+                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors"
+              >
+                🏰 Admin Capital
+              </button>
+              <button
+                onClick={() => window.open('/admin/cwl-edit', '_blank')}
+                className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 transition-colors"
+              >
+                🏆 Admin CWL
+              </button>
+              <button
                 onClick={resetSeason}
                 disabled={updating}
                 className={`px-4 py-2 rounded-lg transition-colors ${
