@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
     const capitalDestroyed = capitalData.rows[0].capital_destroyed;
     const avgPerAttack = attacks_used > 0 ? (capitalDestroyed / attacks_used).toFixed(2) : 0;
     
-    // Actualizar ataques y promedio
+    // Actualizar en capital_raids (tabla principal para dashboard)
     await pool.query(`
       UPDATE capital_raids
       SET attacks_used = $1,
@@ -68,10 +68,11 @@ export async function POST(request: NextRequest) {
       WHERE player_tag = $3 AND weekend_date = $4
     `, [attacks_used, avgPerAttack, player_tag, weekendDate]);
     
-    // También actualizar en capital_raids_weekly
+    // Actualizar en capital_raids_weekly (tabla para penalizaciones)
     await pool.query(`
       UPDATE capital_raids_weekly
-      SET attacks_used = $1
+      SET attacks_used = $1,
+          manually_edited = TRUE
       WHERE player_tag = $2 AND weekend_start_date = $3
     `, [attacks_used, player_tag, weekendDate]);
     
