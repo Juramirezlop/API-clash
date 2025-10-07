@@ -17,6 +17,7 @@ interface Player {
   capital_penalty: number;
   cwl_penalty: number;
   clan_games_penalty: number;
+  inactivity_penalty: number;
   total_penalties: number;
   is_active: boolean;
   last_seen: string;
@@ -73,6 +74,7 @@ interface PenaltyData {
   capital_penalty: number;
   cwl_penalty: number;
   clan_games_penalty: number;
+  inactivity_penalty: number;
   total_penalties: number;
 }
 
@@ -86,7 +88,7 @@ export default function Dashboard() {
   const [penalties, setPenalties] = useState<PenaltyData[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
-  const [showOnlyTop8, setShowOnlyTop8] = useState(false);
+  const [showOnlyTop15, setShowOnlyTop15] = useState(false);
   const [activeTab, setActiveTab] = useState('rankings');
   const [donationSortBy, setDonationSortBy] = useState('balance');
   const [warSortBy, setWarSortBy] = useState('total');
@@ -254,8 +256,8 @@ export default function Dashboard() {
     return '🟢';
   };
 
-  const filteredPlayers = showOnlyTop8 
-    ? players.filter(p => p.total_points > 0).slice(0, 8)
+  const filteredPlayers = showOnlyTop15 
+    ? players.filter(p => p.total_points > 0).slice(0, 15)
     : players;
 
   if (loading) {
@@ -269,12 +271,12 @@ export default function Dashboard() {
   const tabs = [
     { id: 'rankings', label: '🏆 Rankings' },
     { id: 'penalties', label: '⚠️ Penalizaciones' },
-    // { id: 'donations', label: '🎁 Donaciones' },
+    { id: 'donations', label: '🎁 Donaciones' },
     { id: 'wars', label: '⚔️ Guerras' },
     { id: 'cwl', label: '🏆 Liga CWL' },
     { id: 'capital', label: '🏰 Capital' },
     { id: 'events', label: '🎯 Juegos Clan' },
-    // { id: 'trophies', label: '🏆 Copas' }
+    { id: 'trophies', label: '🏆 Copas' }
   ];
 
   return (
@@ -358,24 +360,25 @@ export default function Dashboard() {
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-2xl font-bold text-yellow-400">
-                  🏆 Ranking General de Puntos (6 Categorías)
+                  🏆 Ranking General de Puntos (10 Categorías)
                 </h2>
                 <div className="text-sm text-gray-400 mt-2">
-                  ⭐ Normal (4): Capital×2, Guerras×2 = 10-8-6-5-4-3-2-1 pts
-                  {/* ⭐ Normal (7): Donaciones×2, Capital×2, Guerras×2, Copas×1 = 10-8-6-5-4-3-2-1 pts */}
+                  🔥 Tier 1 (1): CWL = 30-27-24-21-19-17-15-13-11-9-7-5-3-2-1 pts
                   <span className="mx-2">|</span>
-                  💎 Premium (2): CWL×1, Clan Games×1 = 20-16-12-10-8-6-4-2 pts
+                  🔶 Tier 2 (4): Capital×2, Guerras×2 = 20-18-16-14-12-10-8-7-6-5-4-3-2-1-1 pts
+                  <span className="mx-2">|</span>
+                  🔷 Tier 3 (5): Donaciones×2, Copas×1, Clan Games×1 = 15-13-12-11-10-9-8-7-6-5-4-3-2-1-1 pts
                 </div>
               </div>
               <div className="flex items-center space-x-4">
                 <label className="flex items-center space-x-2 text-gray-300">
                   <input
                     type="checkbox"
-                    checked={showOnlyTop8}
-                    onChange={(e) => setShowOnlyTop8(e.target.checked)}
+                    checked={showOnlyTop15}
+                    onChange={(e) => setShowOnlyTop15(e.target.checked)}
                     className="rounded"
                   />
-                  <span>Solo Top 8</span>
+                  <span>Solo Top 15</span>
                 </label>
               </div>
             </div>
@@ -387,11 +390,11 @@ export default function Dashboard() {
                     <th className="px-6 py-4 text-left">Pos</th>
                     <th className="px-6 py-4 text-left">Estado</th>
                     <th className="px-6 py-4 text-left">Jugador</th>
-                    {/* <th className="px-6 py-4 text-center">Donaciones</th> */}
-                    <th className="px-6 py-4 text-center">Clan Games 💎</th>
-                    {/* <th className="px-6 py-4 text-center">Copas</th> */}
+                    <th className="px-6 py-4 text-center">Donaciones</th>
+                    <th className="px-6 py-4 text-center">Clan Games</th>
+                    <th className="px-6 py-4 text-center">Copas</th>
                     <th className="px-6 py-4 text-center">Guerras</th>
-                    <th className="px-6 py-4 text-center">CWL 💎</th>
+                    <th className="px-6 py-4 text-center">CWL 🔥</th>
                     <th className="px-6 py-4 text-center">Capital</th>
                     <th className="px-6 py-4 text-center text-red-400">Penaliz.</th>
                     <th className="px-6 py-4 text-center font-bold">TOTAL</th>
@@ -403,7 +406,7 @@ export default function Dashboard() {
                     <tr 
                       key={`ranking-${player.player_tag}`}
                       className={`hover:bg-gray-700 transition-colors ${
-                        index < 8 && player.total_points > 0 
+                        index < 15 && player.total_points > 0 
                           ? 'bg-green-900/20' 
                           : (player.total_points || 0) < 0 
                             ? 'bg-red-900/20' 
@@ -422,12 +425,12 @@ export default function Dashboard() {
                           #{player.player_tag}
                         </div>
                       </td>
-                      {/* <td className="px-6 py-4 text-center">{player.donation_points || 0}</td> */}
-                      <td className="px-6 py-4 text-center text-purple-400 font-semibold">{player.event_points || 0}</td>
-                      {/* <td className="px-6 py-4 text-center">{player.trophy_points || 0}</td> */}
-                      <td className="px-6 py-4 text-center">{player.war_points || 0}</td>
-                      <td className="px-6 py-4 text-center text-purple-400 font-semibold">{player.cwl_points || 0}</td>
-                      <td className="px-6 py-4 text-center">{player.capital_points || 0}</td>
+                      <td className="px-6 py-4 text-center text-blue-400">{player.donation_points || 0}</td>
+                      <td className="px-6 py-4 text-center text-green-400">{player.event_points || 0}</td>
+                      <td className="px-6 py-4 text-center text-purple-400">{player.trophy_points || 0}</td>
+                      <td className="px-6 py-4 text-center text-orange-400">{player.war_points || 0}</td>
+                      <td className="px-6 py-4 text-center text-red-400 font-semibold">{player.cwl_points || 0}</td>
+                      <td className="px-6 py-4 text-center text-cyan-400">{player.capital_points || 0}</td>
                       <td className="px-6 py-4 text-center">
                         <span className={`font-bold ${
                           (player.total_penalties || 0) < 0 ? 'text-red-400' : 'text-gray-500'
@@ -460,14 +463,14 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="grid md:grid-cols-5 gap-4 mb-6">
-              {/* <div className="bg-gray-800 p-4 rounded-lg border-l-4 border-red-500">
+            <div className="grid md:grid-cols-6 gap-4 mb-6">
+              <div className="bg-gray-800 p-4 rounded-lg border-l-4 border-blue-500">
                 <div className="text-2xl mb-2">💸</div>
-                <div className="text-xl font-bold text-red-400">
+                <div className="text-xl font-bold text-blue-400">
                   {penalties.reduce((sum, p) => sum + Math.abs(p.donation_penalty), 0)}
                 </div>
                 <div className="text-gray-400 text-sm">Donaciones</div>
-              </div> */}
+              </div>
               <div className="bg-gray-800 p-4 rounded-lg border-l-4 border-orange-500">
                 <div className="text-2xl mb-2">⚔️</div>
                 <div className="text-xl font-bold text-orange-400">
@@ -496,6 +499,13 @@ export default function Dashboard() {
                 </div>
                 <div className="text-gray-400 text-sm">Clan Games</div>
               </div>
+              <div className="bg-gray-800 p-4 rounded-lg border-l-4 border-gray-500">
+                <div className="text-2xl mb-2">💤</div>
+                <div className="text-xl font-bold text-gray-400">
+                  {penalties.reduce((sum, p) => sum + Math.abs(p.inactivity_penalty || 0), 0)}
+                </div>
+                <div className="text-gray-400 text-sm">Inactividad</div>
+              </div>
             </div>
 
             <div className="bg-gray-800 rounded-lg overflow-hidden shadow-xl">
@@ -503,18 +513,19 @@ export default function Dashboard() {
                 <thead className="bg-gray-700">
                   <tr>
                     <th className="px-6 py-4 text-left">Jugador</th>
-                    {/* <th className="px-6 py-4 text-center">💸 Donaciones</th> */}
+                    <th className="px-6 py-4 text-center">💸 Donaciones</th>
                     <th className="px-6 py-4 text-center">⚔️ Guerras</th>
                     <th className="px-6 py-4 text-center">🏰 Capital</th>
                     <th className="px-6 py-4 text-center">🏆 CWL</th>
                     <th className="px-6 py-4 text-center">🎯 Clan Games</th>
+                    <th className="px-6 py-4 text-center">💤 Inactividad</th>
                     <th className="px-6 py-4 text-center font-bold text-red-400">TOTAL</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-700">
                   {penalties.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center text-gray-400">
+                      <td colSpan={8} className="px-6 py-12 text-center text-gray-400">
                         🎉 ¡No hay penalizaciones activas! Todos los jugadores están al día.
                       </td>
                     </tr>
@@ -530,11 +541,11 @@ export default function Dashboard() {
                             #{penalty.player_tag}
                           </div>
                         </td>
-                        {/* <td className="px-6 py-4 text-center">
-                          <span className={penalty.donation_penalty < 0 ? 'text-red-400 font-bold' : 'text-gray-500'}>
+                        <td className="px-6 py-4 text-center">
+                          <span className={penalty.donation_penalty < 0 ? 'text-blue-400 font-bold' : 'text-gray-500'}>
                             {penalty.donation_penalty || 0}
                           </span>
-                        </td> */}
+                        </td>
                         <td className="px-6 py-4 text-center">
                           <span className={penalty.war_penalty < 0 ? 'text-orange-400 font-bold' : 'text-gray-500'}>
                             {penalty.war_penalty || 0}
@@ -556,6 +567,11 @@ export default function Dashboard() {
                           </span>
                         </td>
                         <td className="px-6 py-4 text-center">
+                          <span className={(penalty.inactivity_penalty || 0) < 0 ? 'text-gray-400 font-bold' : 'text-gray-500'}>
+                            {penalty.inactivity_penalty || 0}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-center">
                           <span className="text-red-400 font-bold text-lg">
                             {penalty.total_penalties}
                           </span>
@@ -570,22 +586,25 @@ export default function Dashboard() {
             <div className="mt-6 bg-gray-800 p-4 rounded-lg">
               <h3 className="font-bold text-yellow-400 mb-3">📋 Reglas de Penalización:</h3>
               <div className="grid md:grid-cols-2 gap-3 text-sm text-gray-300">
-                {/* <div>
-                  <span className="text-red-400 font-bold">💸 Donaciones:</span> Top 5 peores balances negativos (-2 pts, -4 si &lt; -500)
-                </div> */}
+                <div>
+                  <span className="text-blue-400 font-bold">💸 Donaciones:</span> Balance ≤-500 (-2pts), ≤-1000 (-5pts)
+                </div>
                 <div>
                   <span className="text-orange-400 font-bold">⚔️ Guerras:</span> -1 punto por cada ataque no usado
                 </div>
                 <div>
-                  <span className="text-yellow-400 font-bold">🏰 Capital:</span> -2 pts por fin de semana sin atacar, -1 pt si &lt;10k destruido
+                  <span className="text-yellow-400 font-bold">🏰 Capital:</span> -5 pts por fin de semana sin atacar, -3 pts si &lt;10k destruido
                 </div>
                 <div>
-                  <span className="text-purple-400 font-bold">🏆 CWL:</span> -5 puntos por no usar todos los ataques
+                  <span className="text-purple-400 font-bold">🏆 CWL:</span> -8 puntos por cada ataque no usado
                 </div>
                 <div>
                   <span className="text-pink-400 font-bold">🎯 Clan Games:</span> -5 pts si 0 puntos, -2 pts si &lt;1000
                 </div>
-                <div className="text-gray-400">
+                <div>
+                  <span className="text-gray-400 font-bold">💤 Inactividad:</span> -2 pts si ≥2 días sin donar
+                </div>
+                <div className="text-gray-400 col-span-2">
                   ⏰ Solo aplica a jugadores con más de 7 días en el clan
                 </div>
               </div>
@@ -593,7 +612,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* {activeTab === 'donations' && (
+        {activeTab === 'donations' && (
           <div>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold text-green-400">
@@ -673,7 +692,7 @@ export default function Dashboard() {
               </table>
             </div>
           </div>
-        )} */}
+        )}
 
         {activeTab === 'wars' && (
           <div>
@@ -729,7 +748,7 @@ export default function Dashboard() {
         {activeTab === 'cwl' && (
           <div>
             <h2 className="text-2xl font-bold text-purple-400 mb-6">
-              🏆 Liga de Guerras (CWL) - Temporada Actual 💎
+              🏆 Liga de Guerras (CWL) - Temporada Actual 🔥
             </h2>
             
             <div className="bg-gray-800 rounded-lg overflow-hidden shadow-xl">
@@ -833,7 +852,7 @@ export default function Dashboard() {
         {activeTab === 'events' && (
           <div>
             <h2 className="text-2xl font-bold text-green-400 mb-6">
-              🎯 Juegos del Clan (Clan Games) 💎
+              🎯 Juegos del Clan (Clan Games)
             </h2>
             
             <div className="bg-gray-800 rounded-lg overflow-hidden shadow-xl">
@@ -875,7 +894,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* {activeTab === 'trophies' && (
+        {activeTab === 'trophies' && (
           <div>
             <h2 className="text-2xl font-bold text-purple-400 mb-6">
               🏆 Copas y Liga Actual
@@ -920,7 +939,7 @@ export default function Dashboard() {
               </table>
             </div>
           </div>
-        )} */}
+        )}
 
         <div className="mt-8 bg-gray-800 p-4 rounded-lg">
           <h3 className="font-bold mb-2">📋 Leyenda:</h3>
@@ -935,22 +954,26 @@ export default function Dashboard() {
               <span className="text-2xl">🔴</span> Muy inactivo (+5 días o fuera del clan)
             </div>
             <div>
-              <span className="bg-green-900/20 px-2 py-1 rounded">Verde</span> Top 8 con puntos
+              <span className="bg-green-900/20 px-2 py-1 rounded">Verde</span> Top 15 con puntos
               <br />
-              <span className="text-yellow-400">📊 Sistema Normal:</span> 10-8-6-5-4-3-2-1 pts
+              <span className="text-red-400">🔥 Tier 1 (CWL):</span> 30-27-24-21... pts
               <br />
-              <span className="text-purple-400">💎 Sistema Premium:</span> 20-16-12-10-8-6-4-2 pts
+              <span className="text-orange-400">🔶 Tier 2 (Guerras/Capital):</span> 20-18-16... pts
               <br />
-              <span className="text-blue-400">🎯 9 Categorías totales</span>
+              <span className="text-blue-400">🔷 Tier 3 (Donaciones/Copas/Games):</span> 15-13-12... pts
             </div>
             <div>
               <span className="text-orange-400">⚔️ Guerras:</span> Total + Promedio
               <br />
-              <span className="text-purple-400">🏆 CWL:</span> Liga (Premium)
+              <span className="text-red-400">🏆 CWL:</span> Liga (Tier 1)
               <br />
-              <span className="text-blue-400">🏰 Capital:</span> Total + Promedio
-              {/* <br />
-              <span className="text-green-400">🎁 Donaciones:</span> Cantidad + Balance */}
+              <span className="text-cyan-400">🏰 Capital:</span> Total + Promedio
+              <br />
+              <span className="text-blue-400">🎁 Donaciones:</span> Cantidad + Balance
+              <br />
+              <span className="text-purple-400">🏆 Copas:</span> Trofeos actuales
+              <br />
+              <span className="text-green-400">🎯 Clan Games:</span> Puntos obtenidos
             </div>
           </div>
         </div>
@@ -958,3 +981,5 @@ export default function Dashboard() {
     </div>
   );
 }
+
+// npx cloudflared tunnel --url http://localhost:3000

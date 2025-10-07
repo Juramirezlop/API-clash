@@ -25,7 +25,7 @@ export default function CWLEditPage() {
 
   useEffect(() => {
     if (rounds.length > 0) {
-      setSelectedRound(rounds[rounds.length - 1]); // Última ronda por defecto
+      setSelectedRound(rounds[rounds.length - 1]);
     }
   }, [rounds]);
 
@@ -53,6 +53,31 @@ export default function CWLEditPage() {
   };
 
   const filteredPlayers = players.filter(p => p.round_number === selectedRound);
+
+  const handleDelete = async (playerTag: string, roundNumber: number) => {
+    if (!confirm(`¿Eliminar este registro de la ronda ${roundNumber}?`)) return;
+    
+    try {
+      const response = await fetch('/api/cwl-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          player_tag: playerTag, 
+          round_number: roundNumber,
+          cwl_season: '2025-10'
+        })
+      });
+      
+      if (response.ok) {
+        alert('✅ Registro eliminado');
+        fetchData();
+      } else {
+        alert('❌ Error al eliminar');
+      }
+    } catch (error) {
+      alert('❌ Error: ' + error);
+    }
+  };
 
   const updatePlayer = async (playerTag: string, roundNumber: number) => {
     try {
@@ -140,7 +165,7 @@ export default function CWLEditPage() {
                 <th className="px-6 py-4 text-center">Estrellas</th>
                 <th className="px-6 py-4 text-center">Ataques</th>
                 <th className="px-6 py-4 text-center">Promedio</th>
-                <th className="px-6 py-4 text-center">Acciones</th>
+                <th className="px-6 py-4 text-center" colSpan={2}>Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-700">
@@ -197,6 +222,14 @@ export default function CWLEditPage() {
                         }`}
                       >
                         {updating === key ? '⏳' : hasChanges ? '💾 Guardar' : '✓'}
+                      </button>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <button
+                        onClick={() => handleDelete(player.player_tag, player.round_number)}
+                        className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
+                      >
+                        🗑️
                       </button>
                     </td>
                   </tr>

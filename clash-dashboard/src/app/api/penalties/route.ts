@@ -18,6 +18,7 @@ export async function GET() {
         COALESCE(ps.capital_penalty, 0) as capital_penalty,
         COALESCE(ps.cwl_penalty, 0) as cwl_penalty,
         COALESCE(ps.clan_games_penalty, 0) as clan_games_penalty,
+        COALESCE(ps.inactivity_penalty, 0) as inactivity_penalty,
         COALESCE(ps.total_penalties, 0) as total_penalties
       FROM players p
       LEFT JOIN player_scores ps ON p.player_tag = ps.player_tag 
