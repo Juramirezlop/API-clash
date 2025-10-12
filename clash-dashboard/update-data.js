@@ -440,13 +440,13 @@ class AccumulativeClashUpdater {
                     const warTags = round?.warTags || [];
                     
                     if (!warTags || warTags.length === 0 || warTags[0] === '#0') {
-                        console.log(`   ⏭️ Ronda ${roundIndex + 1} sin datos disponibles (preparación)`);
+                        console.log(`   ⏭️ Ronda ${roundIndex + 1} sin datos`);
                         continue;
                     }
                     
                     console.log(`   📊 Procesando ronda ${roundIndex + 1}`);
                     
-                    for (const warTag of warTags) {  
+                    for (const warTag of warTags) {
                         try {
                             const encodedWarTag = encodeURIComponent(warTag);
                             const warUrl = `https://api.clashofclans.com/v1/clanwarleagues/wars/${encodedWarTag}`;
@@ -456,39 +456,37 @@ class AccumulativeClashUpdater {
                             const warDate = this.parseCoCSDate(cwlWar.startTime);
                             
                             if (warDate >= seasonStart) {
-                                const ourClan = cwlWar.clan?.tag === `#${CLAN_TAG}` ? cwlWar.clan : null;
-
+                                const ourClan = cwlWar.clan?.tag === `#${CLAN_TAG}` ? cwlWar.clan :
+                                            cwlWar.opponent?.tag === `#${CLAN_TAG}` ? cwlWar.opponent : null;
+                                
                                 if (ourClan && ourClan.members) {
-                                    const ourClan = cwlWar.clan?.tag === `#${CLAN_TAG}` ? cwlWar.clan : null;
-
-                                    if (ourClan && ourClan.members) {
-                                        // Guardar SIEMPRE el roster, incluso si no tienen ataques
-                                        for (const member of ourClan.members) {
-                                            const cleanTag = member.tag.replace('#', '');
-                                            const totalStars = member.attacks?.reduce((sum, attack) => sum + attack.stars, 0) || 0;
-                                            const attacksUsed = member.attacks?.length || 0;
-                                            
-                                            await pool.query(`
-                                                INSERT INTO cwl_wars (player_tag, stars, attacks_used, cwl_season, round_number, recorded_date)
-                                                VALUES ($1, $2, $3, $4, $5, $6)
-                                                ON CONFLICT (player_tag, cwl_season, round_number)
-                                                DO UPDATE SET 
-                                                    stars = GREATEST(cwl_wars.stars, $2),
-                                                    attacks_used = GREATEST(cwl_wars.attacks_used, $3)
-                                            `, [cleanTag, totalStars, attacksUsed, cwlData.season, roundIndex + 1, warDate]);
-                                        }
+                                    for (const member of ourClan.members) {
+                                        const cleanTag = member.tag.replace('#', '');
+                                        const stars = member.attacks?.reduce((sum, attack) => sum + attack.stars, 0) || 0;
+                                        const attacks = member.attacks?.length || 0;
+                                        
+                                        await pool.query(`
+                                            INSERT INTO cwl_wars (player_tag, stars, attacks_used, cwl_season, round_number, recorded_date)
+                                            VALUES ($1, $2, $3, $4, $5, $6)
+                                            ON CONFLICT (player_tag, cwl_season, round_number)
+                                            DO UPDATE SET 
+                                                stars = GREATEST(cwl_wars.stars, $2),
+                                                attacks_used = GREATEST(cwl_wars.attacks_used, $3)
+                                        `, [cleanTag, stars, attacks, cwlData.season, roundIndex + 1, warDate]);
                                     }
                                 }
                             }
                             
                         } catch (warError) {
-                            console.log(`     ⚠️ Error en guerra CWL: ${warError.message}`);
+                            console.log(`     ⚠️ Error en guerra: ${warError.message}`);
                         }
                         
                         await new Promise(resolve => setTimeout(resolve, 200));
                     }
                 }
             }
+            
+            console.log('   ✅ CWL guardado por rondas');
             
         } catch (error) {
             if (error.response?.status === 404) {
@@ -498,7 +496,7 @@ class AccumulativeClashUpdater {
             }
         }
     }
-    
+        
     async calculateAllScoresFixed(seasonStart) {
         const currentMonth = new Date().toISOString().substring(0, 7);
         
@@ -513,7 +511,7 @@ class AccumulativeClashUpdater {
         await this.calculateTopDonors(currentMonth, seasonStart);
         await this.calculateBestBalance(currentMonth, seasonStart);
         await this.calculateCapitalTotal(currentMonth, seasonStart);
-        await this.calculateCapitalAverage(currentMonth, seasonStart);
+        // await this.calculateCapitalAverage(currentMonth, seasonStart);
         await this.calculateWarTotal(currentMonth, seasonStart);
         await this.calculateWarAverage(currentMonth, seasonStart);
         await this.calculateTrophies(currentMonth);
@@ -608,37 +606,37 @@ class AccumulativeClashUpdater {
         console.log(`      ✅ Top ${topCapital.rows.length} calculados`);
     }
     
-    async calculateCapitalAverage(month, seasonStart) {
-        console.log('   📊 4. Capital (Promedio) [Tier 2: 20pts]...');
+    // async calculateCapitalAverage(month, seasonStart) {
+    //     console.log('   📊 4. Capital (Promedio) [Tier 2: 20pts]...');
         
-        const capitalAvg = await pool.query(`
-            SELECT 
-                player_tag,
-                SUM(capital_destroyed) as total_destroyed,
-                SUM(attacks_used) as total_attacks,
-                CASE 
-                    WHEN SUM(attacks_used) > 0 THEN SUM(capital_destroyed)::float / SUM(attacks_used)
-                    ELSE 0 
-                END as avg_per_attack
-            FROM capital_raids 
-            WHERE weekend_date >= $1
-            GROUP BY player_tag
-            HAVING SUM(attacks_used) > 0 AND SUM(capital_destroyed) > 0
-            ORDER BY avg_per_attack DESC LIMIT 15
-        `, [seasonStart.toISOString().split('T')[0]]);
+    //     const capitalAvg = await pool.query(`
+    //         SELECT 
+    //             player_tag,
+    //             SUM(capital_destroyed) as total_destroyed,
+    //             SUM(attacks_used) as total_attacks,
+    //             CASE 
+    //                 WHEN SUM(attacks_used) > 0 THEN SUM(capital_destroyed)::float / SUM(attacks_used)
+    //                 ELSE 0 
+    //             END as avg_per_attack
+    //         FROM capital_raids 
+    //         WHERE weekend_date >= $1
+    //         GROUP BY player_tag
+    //         HAVING SUM(attacks_used) > 0 AND SUM(capital_destroyed) > 0
+    //         ORDER BY avg_per_attack DESC LIMIT 15
+    //     `, [seasonStart.toISOString().split('T')[0]]);
         
-        for (let i = 0; i < capitalAvg.rows.length; i++) {
-            const points = TIER2_POINTS[i + 1] || 0;
-            await pool.query(`
-                INSERT INTO player_scores (player_tag, capital_points, season_month)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (player_tag, season_month)
-                DO UPDATE SET capital_points = COALESCE(player_scores.capital_points, 0) + $2
-            `, [capitalAvg.rows[i].player_tag, points, month]);
-        }
+    //     for (let i = 0; i < capitalAvg.rows.length; i++) {
+    //         const points = TIER2_POINTS[i + 1] || 0;
+    //         await pool.query(`
+    //             INSERT INTO player_scores (player_tag, capital_points, season_month)
+    //             VALUES ($1, $2, $3)
+    //             ON CONFLICT (player_tag, season_month)
+    //             DO UPDATE SET capital_points = COALESCE(player_scores.capital_points, 0) + $2
+    //         `, [capitalAvg.rows[i].player_tag, points, month]);
+    //     }
         
-        console.log(`      ✅ Top ${capitalAvg.rows.length} calculados`);
-    }
+    //     console.log(`      ✅ Top ${capitalAvg.rows.length} calculados`);
+    // }
     
     async calculateWarTotal(month, seasonStart) {
         console.log('   ⭐ 5. Guerras (Total Estrellas) [Tier 2: 20pts]...');
@@ -698,14 +696,16 @@ class AccumulativeClashUpdater {
         console.log('   🏆 7. Copas (Trofeos) [Tier 3: 15pts]...');
         
         const topTrophies = await pool.query(`
-            SELECT player_tag, season_points 
-            FROM season_events 
-            WHERE season_month = $1 AND season_points > 0
-            ORDER BY season_points DESC LIMIT 15
+            SELECT se.player_tag, se.season_points 
+            FROM season_events se
+            JOIN players p ON se.player_tag = p.player_tag
+            WHERE se.season_month = $1 AND se.season_points > 0 AND p.is_active = true
+            ORDER BY se.season_points DESC LIMIT 15
         `, [month]);
         
         for (let i = 0; i < topTrophies.rows.length; i++) {
             const points = TIER3_POINTS[i + 1] || 0;
+                        
             await pool.query(`
                 INSERT INTO player_scores (player_tag, trophy_points, season_month)
                 VALUES ($1, $2, $3)
@@ -723,13 +723,23 @@ class AccumulativeClashUpdater {
         const seasonCode = seasonStart.toISOString().substring(0, 7);
         
         const topCWL = await pool.query(`
-            SELECT player_tag, SUM(stars) as total_stars
+            SELECT 
+                player_tag, 
+                SUM(stars) as total_stars,
+                SUM(attacks_used) as total_attacks,
+                COUNT(DISTINCT round_number) as rounds_participated
             FROM cwl_wars 
             WHERE cwl_season >= $1
             GROUP BY player_tag
             HAVING SUM(stars) > 0
             ORDER BY total_stars DESC LIMIT 15
         `, [seasonCode]);
+        
+        console.log('   📊 Top 15 CWL:');
+        topCWL.rows.forEach((player, i) => {
+            const points = TIER1_POINTS[i + 1] || 0;
+            console.log(`      ${i+1}. ${player.player_tag}: ${player.total_stars} ⭐ = ${points} pts`);
+        });
         
         for (let i = 0; i < topCWL.rows.length; i++) {
             const points = TIER1_POINTS[i + 1] || 0;
