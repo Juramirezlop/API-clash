@@ -13,7 +13,12 @@ export async function GET() {
       SELECT 
         p.player_tag,
         p.player_name,
-        COALESCE(se.season_points, 0) as season_points,
+        COALESCE((
+          SELECT SUM(season_points)
+          FROM season_points_weekly spw
+          WHERE spw.player_tag = p.player_tag
+          AND spw.season_month = $1
+        ), 0) as season_points,
         COALESCE(se.clan_games_points, 0) as clan_games_points
       FROM players p
       LEFT JOIN season_events se ON p.player_tag = se.player_tag 
@@ -21,7 +26,7 @@ export async function GET() {
       WHERE p.is_active = true
       ORDER BY 
         COALESCE(se.clan_games_points, 0) DESC,
-        COALESCE(se.season_points, 0) DESC
+        season_points DESC
     `, [currentMonth]);
 
     return NextResponse.json(result.rows);

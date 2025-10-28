@@ -42,7 +42,7 @@ class AccumulativeClashUpdater {
                 
                 try {
                     const playerData = await this.getPlayerData(member.tag);
-                    await this.updatePlayerStats(member.tag, playerData, seasonStart);
+                    await this.updatePlayerStats(member.tag, playerData, seasonStart, member.name);
                     await new Promise(resolve => setTimeout(resolve, 100));
                 } catch (error) {
                     console.error(`     ❌ Error con ${member.name}: ${error.message}`);
@@ -58,8 +58,8 @@ class AccumulativeClashUpdater {
             
             console.log('\n🧮 Calculando puntuaciones con sistema de 10 categorías...');
             console.log('   🔥 Tier 1 (CWL): 30-27-24-21-19-17-15-13-11-9-7-5-3-2-1 pts');
-            console.log('   🔶 Tier 2 (Guerras/Capital): 20-18-16-14-12-10-8-7-6-5-4-3-2-1-1 pts');
-            console.log('   🔷 Tier 3 (Copas/Clan Games): 15-13-12-11-10-9-8-7-6-5-4-3-2-1-1 pts');
+            console.log('   🔶 Tier 2 (Capital): 20-18-16-14-12-10-8-7-6-5-4-3-2-1-1 pts');
+            console.log('   🔷 Tier 3 (Guerras/Copas/Clan Games): 15-13-12-11-10-9-8-7-6-5-4-3-2-1-1 pts');
             console.log('   ⚪ Tier 4 (Donaciones): 5-4-3-2-1 pts\n');
             await this.calculateAllScoresFixed(seasonStart);
             
@@ -121,11 +121,44 @@ class AccumulativeClashUpdater {
         
         const activeTags = members.map(m => m.tag.replace('#', ''));
         if (activeTags.length > 0) {
+            const placeholders = activeTags.map((_, i) => `$${i + 1}`).join(',');
             await pool.query(`
                 UPDATE players 
                 SET is_active = false 
-                WHERE player_tag NOT IN (${activeTags.map((_, i) => `$${i + 1}`).join(',')})
+                WHERE player_tag NOT IN (${placeholders})
             `, activeTags);
+        }
+                
+        // 🗑️ ELIMINAR PERMANENTEMENTE jugadores inactivos de TODAS las tablas
+        console.log('🗑️ Eliminando jugadores que salieron del clan...');
+        
+        const inactivePlayers = await pool.query(`
+            SELECT player_tag, player_name FROM players WHERE is_active = false
+        `);
+        
+        if (inactivePlayers.rows.length > 0) {
+            console.log(`   ⚠️ Encontrados ${inactivePlayers.rows.length} jugadores inactivos:`);
+            inactivePlayers.rows.forEach(p => {
+                console.log(`      - ${p.player_name} (#${p.player_tag})`);
+            });
+            
+            const inactiveTags = inactivePlayers.rows.map(p => p.player_tag);
+            
+            // Eliminar de todas las tablas en orden
+            await pool.query(`DELETE FROM player_scores WHERE player_tag = ANY($1)`, [inactiveTags]);
+            await pool.query(`DELETE FROM season_points_weekly WHERE player_tag = ANY($1)`, [inactiveTags]);
+            await pool.query(`DELETE FROM season_events WHERE player_tag = ANY($1)`, [inactiveTags]);
+            await pool.query(`DELETE FROM capital_raids_weekly WHERE player_tag = ANY($1)`, [inactiveTags]);
+            await pool.query(`DELETE FROM capital_raids WHERE player_tag = ANY($1)`, [inactiveTags]);
+            await pool.query(`DELETE FROM cwl_wars WHERE player_tag = ANY($1)`, [inactiveTags]);
+            await pool.query(`DELETE FROM wars WHERE player_tag = ANY($1)`, [inactiveTags]);
+            await pool.query(`DELETE FROM donations WHERE player_tag = ANY($1)`, [inactiveTags]);
+            await pool.query(`DELETE FROM donation_baselines WHERE player_tag = ANY($1)`, [inactiveTags]);
+            await pool.query(`DELETE FROM players WHERE player_tag = ANY($1)`, [inactiveTags]);
+            
+            console.log(`   ✅ ${inactivePlayers.rows.length} jugadores eliminados de la base de datos`);
+        } else {
+            console.log('   ✅ No hay jugadores inactivos para eliminar');
         }
     }
     
@@ -137,7 +170,7 @@ class AccumulativeClashUpdater {
         return response.data;
     }
     
-    async updatePlayerStats(playerTag, playerData, seasonStart) {
+    async updatePlayerStats(playerTag, playerData, seasonStart, playerName) {
         const cleanTag = playerTag.replace('#', '');
         const today = new Date().toISOString().split('T')[0];
         const currentMonth = new Date().toISOString().substring(0, 7);
@@ -170,19 +203,34 @@ class AccumulativeClashUpdater {
         const seasonReceived = Math.max(0, (playerData.donationsReceived || 0) - baselineReceived);
         
         const lastActivity = await pool.query(`
-            SELECT d.donations_given, se.season_points as trophies
-            FROM donations d
-            LEFT JOIN season_events se ON d.player_tag = se.player_tag AND se.season_month = $2
-            WHERE d.player_tag = $1 
+            SELECT d.donations_given, se.season_points as trophies, p.attack_wins
+            FROM players p
+            LEFT JOIN donations d ON p.player_tag = d.player_tag
+            LEFT JOIN season_events se ON p.player_tag = se.player_tag AND se.season_month = $2
+            WHERE p.player_tag = $1 
             ORDER BY d.recorded_at DESC LIMIT 1
         `, [cleanTag, currentMonth]);
 
         const currentTrophies = playerData.trophies || 0;
+        const currentAttackWins = playerData.attackWins || 0;
         const previousDonations = lastActivity.rows.length > 0 ? lastActivity.rows[0].donations_given : 0;
+        const previousTrophies = lastActivity.rows.length > 0 ? lastActivity.rows[0].trophies : 0;
+        const previousAttackWins = lastActivity.rows.length > 0 ? lastActivity.rows[0].attack_wins : 0;
 
-        if (seasonDonated > previousDonations) {
-            await pool.query(`UPDATE players SET last_seen = NOW() WHERE player_tag = $1`, [cleanTag]);
-            console.log(`   Donaciones: ${previousDonations} -> ${seasonDonated}`);
+        // Detectar actividad (sin defensas)
+        const hasActivity = (
+            seasonDonated > previousDonations ||  // Donó
+            currentTrophies !== previousTrophies ||  // Cambió copas
+            currentAttackWins > previousAttackWins  // Atacó
+        );
+
+        if (hasActivity) {
+            await pool.query(`
+                UPDATE players 
+                SET last_seen = NOW(), attack_wins = $2
+                WHERE player_tag = $1
+            `, [cleanTag, currentAttackWins]);
+            console.log(`   🟢 Actividad detectada: ${playerName}`);
         }
         
         let donationRatio = 0;
@@ -202,8 +250,38 @@ class AccumulativeClashUpdater {
             VALUES ($1, $2, $3)
             ON CONFLICT (player_tag, season_month) DO UPDATE SET season_points = $2
         `, [cleanTag, currentTrophies, currentMonth]);
+
+        // Guardar snapshot semanal de trofeos
+        const todayDate = new Date();
+        const dayOfWeek = todayDate.getDay();
+        const weekStart = new Date(todayDate);
+        const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+        weekStart.setDate(todayDate.getDate() - daysToSubtract);
+        weekStart.setHours(0, 0, 0, 0);
+        const weekStartStr = weekStart.toISOString().split('T')[0];
+
+        const manualCheckTrophies = await pool.query(`
+            SELECT manually_edited FROM season_points_weekly 
+            WHERE player_tag = $1 AND week_start_date = $2
+        `, [cleanTag, weekStartStr]);
+
+        if (manualCheckTrophies.rows.length > 0 && manualCheckTrophies.rows[0].manually_edited) {
+            console.log(`   ✏️ ${playerName}: Copas editadas manualmente, saltando...`);
+        } else {
+            await pool.query(`
+                INSERT INTO season_points_weekly (player_tag, season_points, week_start_date, season_month, manually_edited)
+                VALUES ($1, $2, $3, $4, FALSE)
+                ON CONFLICT (player_tag, week_start_date)
+                DO UPDATE SET 
+                    season_points = CASE 
+                        WHEN season_points_weekly.manually_edited = TRUE 
+                        THEN season_points_weekly.season_points 
+                        ELSE GREATEST(season_points_weekly.season_points, $2) 
+                    END
+            `, [cleanTag, currentTrophies, weekStartStr, currentMonth]);
+        }
     }
-    
+            
     async updateWarDataAccumulative(seasonStart) {
         try {
             await this.getCurrentWarAccumulative(seasonStart);
@@ -245,13 +323,27 @@ class AccumulativeClashUpdater {
                 const totalStars = member.attacks?.reduce((sum, attack) => sum + attack.stars, 0) || 0;
                 
                 if (!isCWL) {
+                    // Verificar si fue editado manualmente
+                    const manualCheck = await pool.query(`
+                        SELECT manually_edited FROM wars 
+                        WHERE war_tag = $1 AND player_tag = $2
+                    `, [warTag, cleanTag]);
+                    
+                    const isManuallyEdited = manualCheck.rows.length > 0 && manualCheck.rows[0].manually_edited;
+                    
+                    if (isManuallyEdited) {
+                        // No sobrescribir si fue editado manualmente
+                        console.log(`     ✏️ ${member.name}: Editado manualmente, saltando...`);
+                        continue;
+                    }
+                    
                     await pool.query(`
-                        INSERT INTO wars (player_tag, war_tag, stars, attacks_used, war_date, war_type)
-                        VALUES ($1, $2, $3, $4, $5, 'regular')
+                        INSERT INTO wars (player_tag, war_tag, stars, attacks_used, war_date, war_type, manually_edited)
+                        VALUES ($1, $2, $3, $4, $5, 'regular', FALSE)
                         ON CONFLICT (war_tag, player_tag)
                         DO UPDATE SET 
-                            stars = GREATEST(wars.stars, $3),
-                            attacks_used = GREATEST(wars.attacks_used, $4)
+                            stars = CASE WHEN wars.manually_edited = TRUE THEN wars.stars ELSE GREATEST(wars.stars, $3) END,
+                            attacks_used = CASE WHEN wars.manually_edited = TRUE THEN wars.attacks_used ELSE GREATEST(wars.attacks_used, $4) END
                     `, [cleanTag, warTag, totalStars, member.attacks?.length || 0, warDate]);
                 }
             }
@@ -464,14 +556,24 @@ class AccumulativeClashUpdater {
                                         const cleanTag = member.tag.replace('#', '');
                                         const stars = member.attacks?.reduce((sum, attack) => sum + attack.stars, 0) || 0;
                                         const attacks = member.attacks?.length || 0;
+
+                                        const manualCheckCWL = await pool.query(`
+                                            SELECT manually_edited FROM cwl_wars 
+                                            WHERE player_tag = $1 AND cwl_season = $2 AND round_number = $3
+                                        `, [cleanTag, cwlData.season, roundIndex + 1]);
+                                        
+                                        if (manualCheckCWL.rows.length > 0 && manualCheckCWL.rows[0].manually_edited) {
+                                            console.log(`     ✏️ ${member.name} R${roundIndex + 1}: Editado manualmente, saltando...`);
+                                            continue;
+                                        }
                                         
                                         await pool.query(`
                                             INSERT INTO cwl_wars (player_tag, stars, attacks_used, cwl_season, round_number, recorded_date)
                                             VALUES ($1, $2, $3, $4, $5, $6)
                                             ON CONFLICT (player_tag, cwl_season, round_number)
                                             DO UPDATE SET 
-                                                stars = GREATEST(cwl_wars.stars, $2),
-                                                attacks_used = GREATEST(cwl_wars.attacks_used, $3)
+                                                stars = CASE WHEN cwl_wars.manually_edited = TRUE THEN cwl_wars.stars ELSE GREATEST(cwl_wars.stars, $2) END,
+                                                attacks_used = CASE WHEN cwl_wars.manually_edited = TRUE THEN cwl_wars.attacks_used ELSE GREATEST(cwl_wars.attacks_used, $3) END
                                         `, [cleanTag, stars, attacks, cwlData.season, roundIndex + 1, warDate]);
                                     }
                                 }
@@ -511,7 +613,6 @@ class AccumulativeClashUpdater {
         await this.calculateTopDonors(currentMonth, seasonStart);
         await this.calculateBestBalance(currentMonth, seasonStart);
         await this.calculateCapitalTotal(currentMonth, seasonStart);
-        // await this.calculateCapitalAverage(currentMonth, seasonStart);
         await this.calculateWarTotal(currentMonth, seasonStart);
         await this.calculateWarAverage(currentMonth, seasonStart);
         await this.calculateTrophies(currentMonth);
@@ -639,7 +740,7 @@ class AccumulativeClashUpdater {
     // }
     
     async calculateWarTotal(month, seasonStart) {
-        console.log('   ⭐ 5. Guerras (Total Estrellas) [Tier 2: 20pts]...');
+        console.log('   ⭐ 5. Guerras (Total Estrellas) [Tier 3: 15pts]...');
         
         const topWars = await pool.query(`
             SELECT player_tag, SUM(stars) as total_stars
@@ -649,9 +750,11 @@ class AccumulativeClashUpdater {
             HAVING SUM(stars) > 0
             ORDER BY total_stars DESC LIMIT 15
         `, [seasonStart]);
+
+        console.log(`   📊 Encontrados: ${topWars.rows.length} jugadores con estrellas`);
         
         for (let i = 0; i < topWars.rows.length; i++) {
-            const points = TIER2_POINTS[i + 1] || 0;
+            const points = TIER3_POINTS[i + 1] || 0;
             await pool.query(`
                 INSERT INTO player_scores (player_tag, war_points, season_month)
                 VALUES ($1, $2, $3)
@@ -664,7 +767,7 @@ class AccumulativeClashUpdater {
     }
     
     async calculateWarAverage(month, seasonStart) {
-        console.log('   📈 6. Guerras (Promedio Real) [Tier 2: 20pts]...');
+        console.log('   📈 6. Guerras (Promedio Real) [Tier 3: 15pts]...');
         
         const warAvg = await pool.query(`
             SELECT 
@@ -680,7 +783,7 @@ class AccumulativeClashUpdater {
         `, [seasonStart]);
         
         for (let i = 0; i < warAvg.rows.length; i++) {
-            const points = TIER2_POINTS[i + 1] || 0;
+            const points = TIER3_POINTS[i + 1] || 0;
             await pool.query(`
                 INSERT INTO player_scores (player_tag, war_points, season_month)
                 VALUES ($1, $2, $3)
@@ -693,19 +796,20 @@ class AccumulativeClashUpdater {
     }
     
     async calculateTrophies(month) {
-        console.log('   🏆 7. Copas (Trofeos) [Tier 3: 15pts]...');
+        console.log('   🏆 7. Copas (Acumulado Mensual) [Tier 3: 15pts]...');
         
         const topTrophies = await pool.query(`
-            SELECT se.player_tag, se.season_points 
-            FROM season_events se
-            JOIN players p ON se.player_tag = p.player_tag
-            WHERE se.season_month = $1 AND se.season_points > 0 AND p.is_active = true
-            ORDER BY se.season_points DESC LIMIT 15
+            SELECT player_tag, SUM(season_points) as total_trophies
+            FROM season_points_weekly
+            WHERE season_month = $1
+            GROUP BY player_tag
+            HAVING SUM(season_points) > 0
+            ORDER BY total_trophies DESC LIMIT 15
         `, [month]);
         
         for (let i = 0; i < topTrophies.rows.length; i++) {
             const points = TIER3_POINTS[i + 1] || 0;
-                        
+            
             await pool.query(`
                 INSERT INTO player_scores (player_tag, trophy_points, season_month)
                 VALUES ($1, $2, $3)
@@ -1018,7 +1122,7 @@ class AccumulativeClashUpdater {
     }
     
     async calculateInactivityPenalty(month) {
-        console.log('   💤 Penalizaciones - Inactividad...');
+        console.log('   💤 Penalizaciones - Inactividad (acumulativa)...');
         
         const minDaysInClan = 7;
         
@@ -1032,7 +1136,11 @@ class AccumulativeClashUpdater {
         `);
         
         for (const player of inactivePlayers.rows) {
-            const penalty = -2;
+            const daysInactive = Math.floor(player.days_inactive);
+            
+            // Limitar a máximo 7 días (día 7 = -5 puntos)
+            const effectiveDays = Math.min(daysInactive, 7);
+            const penalty = effectiveDays === 4 ? -2 : -(2 + (effectiveDays - 4));
             
             await pool.query(`
                 INSERT INTO player_scores (player_tag, inactivity_penalty, season_month)

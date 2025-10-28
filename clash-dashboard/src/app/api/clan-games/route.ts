@@ -41,12 +41,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Datos inválidos' }, { status: 400 });
     }
     
-    // Actualizar puntos de Clan Games
+    // Primero obtener season_points existentes
+    const existingPoints = await pool.query(`
+      SELECT COALESCE(season_points, 0) as season_points
+      FROM season_events 
+      WHERE player_tag = $1 AND season_month = $2
+    `, [player_tag, currentMonth]);
+    
+    const currentSeasonPoints = existingPoints.rows.length > 0 
+      ? existingPoints.rows[0].season_points 
+      : 0;
+    
+    // Ahora hacer el insert/update con valores simples
     await pool.query(`
       INSERT INTO season_events (player_tag, season_points, clan_games_points, clan_games_date, season_month)
-      VALUES ($1, 
-        (SELECT COALESCE(season_points, 0) FROM season_events WHERE player_tag = $1 AND season_month = $2), 
-        $3, $4, $2)
+      VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT (player_tag, season_month)
       DO UPDATE SET 
         clan_games_points = $3,
@@ -54,7 +63,7 @@ export async function POST(request: NextRequest) {
           WHEN $3 > 0 THEN $4 
           ELSE season_events.clan_games_date 
         END
-    `, [player_tag, currentMonth, clan_games_points, today]);
+    `, [player_tag, currentSeasonPoints, clan_games_points, today, currentMonth]);
     
     // Recalcular puntos de eventos (Top 8 Clan Games)
     await recalculateEventPoints(currentMonth);

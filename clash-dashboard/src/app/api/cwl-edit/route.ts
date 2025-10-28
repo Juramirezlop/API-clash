@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
       UPDATE cwl_wars
       SET stars = $1,
           attacks_used = $2
+          manually_edited = TRUE
       WHERE player_tag = $3 
       AND round_number = $4
       AND cwl_season >= '2025-10'

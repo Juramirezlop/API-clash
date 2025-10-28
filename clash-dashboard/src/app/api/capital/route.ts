@@ -10,6 +10,18 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const sortBy = searchParams.get('sort') || 'total'; // 'total' o 'average'
     
+    // Obtener fecha de inicio de temporada dinámica
+    const seasonConfig = await pool.query(`
+      SELECT season_start_date 
+      FROM season_config 
+      ORDER BY created_at DESC 
+      LIMIT 1
+    `);
+    
+    const seasonStart = seasonConfig.rows.length > 0 
+      ? seasonConfig.rows[0].season_start_date 
+      : '2025-09-01';
+    
     let orderByClause = '';
     
     if (sortBy === 'average') {
@@ -30,13 +42,13 @@ export async function GET(request: NextRequest) {
         COALESCE(AVG(c.average_per_attack), 0) as average_per_attack
       FROM players p
       LEFT JOIN capital_raids c ON p.player_tag = c.player_tag 
-        AND c.weekend_date >= '2025-09-01'
+        AND c.weekend_date >= $1
       WHERE p.is_active = true
       GROUP BY p.player_name, p.player_tag
       ORDER BY ${orderByClause}, p.player_name ASC
     `;
     
-    const result = await pool.query(query);
+    const result = await pool.query(query, [seasonStart]);
     
     return NextResponse.json(result.rows);
     

@@ -1,4 +1,4 @@
-'use client';
+"use client"
 
 import { useState, useEffect } from 'react';
 
@@ -76,6 +76,13 @@ interface PenaltyData {
   clan_games_penalty: number;
   inactivity_penalty: number;
   total_penalties: number;
+}
+
+interface WeeklyTrophyData {
+  player_tag: string;
+  player_name: string;
+  season_points: number;
+  week_start_date: string;
 }
 
 export default function Dashboard() {
@@ -193,7 +200,7 @@ export default function Dashboard() {
       setLoading(false);
     }
   };
-
+  
   useEffect(() => {
     if (!loading) {
       const fetchDonations = async () => {
@@ -268,6 +275,106 @@ export default function Dashboard() {
     );
   }
 
+  const TrophiesWeeklyView = () => {
+    const [data, setData] = useState<{players: any[], weeks: any[]} | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+      const fetchMonthlyTrophies = async () => {
+        try {
+          const response = await fetch('/api/trophies-monthly');
+          if (!response.ok) throw new Error('Error al cargar copas');
+          const result = await response.json();
+          setData(result);
+        } catch (err: any) {
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+      fetchMonthlyTrophies();
+    }, []);
+
+    if (loading) {
+      return <div className="text-center py-12">⏳ Cargando copas mensuales...</div>;
+    }
+
+    if (error || !data) {
+      return (
+        <div>
+          <h2 className="text-2xl font-bold text-purple-400 mb-6">
+            🏆 Copas Semanales - Acumulado Mensual
+          </h2>
+          <div className="bg-gray-800 rounded-lg p-12 text-center text-red-400">
+            ❌ Error: {error || 'No hay datos disponibles'}
+          </div>
+        </div>
+      );
+    }
+
+    const { players, weeks } = data;
+
+    if (!players || players.length === 0) {
+      return (
+        <div>
+          <h2 className="text-2xl font-bold text-purple-400 mb-6">
+            🏆 Copas Semanales - Acumulado Mensual
+          </h2>
+          <div className="bg-gray-800 rounded-lg p-12 text-center text-gray-400">
+            📊 No hay datos de copas para este mes
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div>
+        <h2 className="text-2xl font-bold text-purple-400 mb-6">
+          🏆 Copas Semanales - Acumulado Mensual ({weeks.length} semanas)
+        </h2>
+        
+        <div className="bg-gray-800 rounded-lg overflow-hidden shadow-xl">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-700">
+                <tr>
+                  <th className="px-4 py-3 text-left">Pos</th>
+                  <th className="px-4 py-3 text-left">Jugador</th>
+                  {weeks.map((week, idx) => (
+                    <th key={`w-${idx}`} className="px-3 py-3 text-center text-sm">
+                      S{week.number}
+                    </th>
+                  ))}
+                  <th className="px-4 py-3 text-center font-bold">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-700">
+                {players.map((player, idx) => (
+                  <tr key={player.player_tag} className="hover:bg-gray-700">
+                    <td className="px-4 py-3 text-yellow-400 font-bold">{idx + 1}</td>
+                    <td className="px-4 py-3">{player.player_name}</td>
+                    {weeks.map((week, wIdx) => {
+                      const w = player.weeks?.find((pw: any) => pw.week === week.date);
+                      return (
+                        <td key={`${player.player_tag}-${wIdx}`} className="px-3 py-3 text-center text-purple-400 text-sm">
+                          {w?.trophies > 0 ? w.trophies.toLocaleString() : '-'}
+                        </td>
+                      );
+                    })}
+                    <td className="px-4 py-3 text-center font-bold text-yellow-400">
+                      {player.total?.toLocaleString() || '0'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const tabs = [
     { id: 'rankings', label: '🏆 Rankings' },
     { id: 'penalties', label: '⚠️ Penalizaciones' },
@@ -306,16 +413,22 @@ export default function Dashboard() {
                 🎯 Admin Clan Games
               </button>
               <button
-                onClick={() => window.open('/admin/capital-edit', '_blank')}
-                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors"
+                onClick={() => window.open('/admin/trophies-edit', '_blank')}
+                className="px-4 py-2 rounded-lg bg-yellow-600 hover:bg-yellow-700 transition-colors"
               >
-                🏰 Admin Capital
+                🏆 Admin Copas
               </button>
               <button
                 onClick={() => window.open('/admin/cwl-edit', '_blank')}
                 className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 transition-colors"
               >
                 🏆 Admin CWL
+              </button>
+              <button
+                onClick={() => window.open('/admin/wars-edit', '_blank')}
+                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 transition-colors"
+              >
+                ⚔️ Admin Guerras
               </button>
               <button
                 onClick={resetSeason}
@@ -362,13 +475,6 @@ export default function Dashboard() {
                 <h2 className="text-2xl font-bold text-yellow-400">
                   🏆 Ranking General de Puntos (10 Categorías)
                 </h2>
-                <div className="text-sm text-gray-400 mt-2">
-                  🔥 Tier 1 (1): CWL = 30-27-24-21-19-17-15-13-11-9-7-5-3-2-1 pts
-                  <span className="mx-2">|</span>
-                  🔶 Tier 2 (4): Capital×2, Guerras×2 = 20-18-16-14-12-10-8-7-6-5-4-3-2-1-1 pts
-                  <span className="mx-2">|</span>
-                  🔷 Tier 3 (5): Donaciones×2, Copas×1, Clan Games×1 = 15-13-12-11-10-9-8-7-6-5-4-3-2-1-1 pts
-                </div>
               </div>
               <div className="flex items-center space-x-4">
                 <label className="flex items-center space-x-2 text-gray-300">
@@ -765,33 +871,41 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-700">
-                  {cwl
-                    .sort((a, b) => (b.total_stars || 0) - (a.total_stars || 0))
-                    .map((player, index) => (
-                    <tr key={`cwl-${player.player_tag}`} className="hover:bg-gray-700 transition-colors">
-                      <td className="px-6 py-4 font-bold text-yellow-400">{index + 1}</td>
-                      <td className="px-6 py-4 font-medium">{player.player_name}</td>
-                      <td className="px-6 py-4 text-center text-yellow-400 font-bold">
-                        {player.total_stars || 0}
-                      </td>
-                      <td className="px-6 py-4 text-center">{player.total_attacks || 0}</td>
-                      <td className="px-6 py-4 text-center">{player.rounds_participated || 0}</td>
-                      <td className="px-6 py-4 text-center">
-                        {(player.total_attacks || 0) > 0 ? ((player.total_stars || 0) / (player.total_attacks || 1)).toFixed(1) : '0.0'}
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <span className={`px-2 py-1 rounded text-xs font-bold ${
-                          (player.total_stars || 0) >= 15 ? 'bg-green-600' : 
-                          (player.total_stars || 0) >= 8 ? 'bg-yellow-600' : 
-                          (player.total_stars || 0) > 0 ? 'bg-orange-600' : 'bg-gray-600'
-                        }`}>
-                          {(player.total_stars || 0) >= 15 ? 'EXCELENTE' : 
-                           (player.total_stars || 0) >= 8 ? 'BUENO' : 
-                           (player.total_stars || 0) > 0 ? 'REGULAR' : 'SIN DATOS'}
-                        </span>
+                  {!Array.isArray(cwl) || cwl.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-6 py-12 text-center text-gray-400">
+                        📊 No hay datos de CWL disponibles
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    [...cwl]
+                      .sort((a, b) => (b.total_stars || 0) - (a.total_stars || 0))
+                      .map((player, index) => (
+                      <tr key={`cwl-${player.player_tag}`} className="hover:bg-gray-700 transition-colors">
+                        <td className="px-6 py-4 font-bold text-yellow-400">{index + 1}</td>
+                        <td className="px-6 py-4 font-medium">{player.player_name}</td>
+                        <td className="px-6 py-4 text-center text-yellow-400 font-bold">
+                          {player.total_stars || 0}
+                        </td>
+                        <td className="px-6 py-4 text-center">{player.total_attacks || 0}</td>
+                        <td className="px-6 py-4 text-center">{player.rounds_participated || 0}</td>
+                        <td className="px-6 py-4 text-center">
+                          {(player.total_attacks || 0) > 0 ? ((player.total_stars || 0) / (player.total_attacks || 1)).toFixed(1) : '0.0'}
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={`px-2 py-1 rounded text-xs font-bold ${
+                            (player.total_stars || 0) >= 15 ? 'bg-green-600' : 
+                            (player.total_stars || 0) >= 8 ? 'bg-yellow-600' : 
+                            (player.total_stars || 0) > 0 ? 'bg-orange-600' : 'bg-gray-600'
+                          }`}>
+                            {(player.total_stars || 0) >= 15 ? 'EXCELENTE' : 
+                             (player.total_stars || 0) >= 8 ? 'BUENO' : 
+                             (player.total_stars || 0) > 0 ? 'REGULAR' : 'SIN DATOS'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -894,52 +1008,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {activeTab === 'trophies' && (
-          <div>
-            <h2 className="text-2xl font-bold text-purple-400 mb-6">
-              🏆 Copas y Liga Actual
-            </h2>
-            
-            <div className="bg-gray-800 rounded-lg overflow-hidden shadow-xl">
-              <table className="w-full">
-                <thead className="bg-gray-700">
-                  <tr>
-                    <th className="px-6 py-4 text-left">Pos</th>
-                    <th className="px-6 py-4 text-left">Jugador</th>
-                    <th className="px-6 py-4 text-center">Copas</th>
-                    <th className="px-6 py-4 text-center">Liga</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-700">
-                  {events
-                    .sort((a, b) => (b.season_points || 0) - (a.season_points || 0))
-                    .map((player, index) => (
-                    <tr key={`trophies-${player.player_tag}`} className="hover:bg-gray-700 transition-colors">
-                      <td className="px-6 py-4 font-bold text-yellow-400">{index + 1}</td>
-                      <td className="px-6 py-4 font-medium">{player.player_name}</td>
-                      <td className="px-6 py-4 text-center text-purple-400 font-bold">
-                        {(player.season_points || 0).toLocaleString()}
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <span className={`px-2 py-1 rounded text-xs font-bold ${
-                          (player.season_points || 0) >= 5000 ? 'bg-purple-600' : 
-                          (player.season_points || 0) >= 4000 ? 'bg-blue-600' : 
-                          (player.season_points || 0) >= 3000 ? 'bg-yellow-600' : 
-                          (player.season_points || 0) >= 2000 ? 'bg-orange-600' : 'bg-gray-600'
-                        }`}>
-                          {(player.season_points || 0) >= 5000 ? 'LEGEND' : 
-                           (player.season_points || 0) >= 4000 ? 'CHAMPION' : 
-                           (player.season_points || 0) >= 3000 ? 'MASTER' : 
-                           (player.season_points || 0) >= 2000 ? 'CRYSTAL' : 'GOLD/SILVER'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+        {activeTab === 'trophies' && <TrophiesWeeklyView />}
 
         <div className="mt-8 bg-gray-800 p-4 rounded-lg">
           <h3 className="font-bold mb-2">📋 Leyenda:</h3>
