@@ -23,24 +23,24 @@ export async function POST() {
             )
         `);
         
-        // 2. Guardar baseline de donaciones ANTES de resetear
+        // 2. RESETEAR baselines a 0 (porque Clash of Clans resetea donaciones cada mes)
         await pool.query(`
             INSERT INTO donation_baselines (player_tag, baseline_donated, baseline_received, baseline_date)
-            SELECT DISTINCT ON (player_tag) 
+            SELECT 
                 player_tag, 
-                donations_given, 
-                donations_received,
+                0,
+                0,
                 NOW()
-            FROM donations
-            ORDER BY player_tag, recorded_at DESC
+            FROM players
+            WHERE is_active = true
             ON CONFLICT (player_tag) 
             DO UPDATE SET 
-                baseline_donated = EXCLUDED.baseline_donated,
-                baseline_received = EXCLUDED.baseline_received,
+                baseline_donated = 0,
+                baseline_received = 0,
                 baseline_date = NOW()
         `);
         
-        console.log('💾 Baselines de donaciones guardados');
+        console.log('💾 Baselines de donaciones reseteados a 0');
         
         // 3. Crear backup de puntuaciones
         const backupSuffix = resetDate.toISOString().replace(/[-:]/g, '').substring(0, 13);
@@ -52,30 +52,39 @@ export async function POST() {
         
         console.log(`💾 Backup creado: player_scores_backup_${backupSuffix}`);
         
-        // 4. Reset puntuaciones a 0
+        // 4. Reset puntuaciones Y PENALIZACIONES a 0
         await pool.query(`
             UPDATE player_scores 
             SET war_points = 0, cwl_points = 0, donation_points = 0, 
                 capital_points = 0, event_points = 0, trophy_points = 0, 
-                total_points = 0, last_updated = NOW()
+                total_points = 0,
+                donation_penalty = 0, war_penalty = 0, capital_penalty = 0,
+                cwl_penalty = 0, clan_games_penalty = 0, inactivity_penalty = 0,
+                total_penalties = 0,
+                last_updated = NOW()
             WHERE season_month = $1
         `, [currentMonth]);
         
-        console.log('✅ Puntuaciones reseteadas a 0');
+        console.log('✅ Puntuaciones y penalizaciones reseteadas a 0');
         
         // 5. BORRAR TODOS los datos históricos de guerras
         const deletedWars = await pool.query(`DELETE FROM wars`);
-        console.log(`🗑️ Borradas TODAS las guerras: ${deletedWars.rowCount} registros`);
+        console.log(`🗑️ Borradas TODAS las guerras: ${deletedWars.rowCount || 0} registros`);
         
         // 6. BORRAR TODOS los datos de capital raids
         const deletedCapital = await pool.query(`DELETE FROM capital_raids`);
-        console.log(`🗑️ Borrados TODOS los registros de capital: ${deletedCapital.rowCount}`);
+        const deletedCapitalWeekly = await pool.query(`DELETE FROM capital_raids_weekly`);
+        console.log(`🗑️ Borrados TODOS los registros de capital: ${(deletedCapital.rowCount || 0) + (deletedCapitalWeekly.rowCount || 0)}`);
         
         // 7. BORRAR TODOS los datos de CWL
         const deletedCWL = await pool.query(`DELETE FROM cwl_wars`);
-        console.log(`🗑️ Borrados TODOS los registros de CWL: ${deletedCWL.rowCount}`);
+        console.log(`🗑️ Borrados TODOS los registros de CWL: ${deletedCWL.rowCount || 0}`);
         
-        // 8. Reset Clan Games a 0 y borrar fechas
+        // 8. BORRAR TODOS los registros semanales de copas
+        const deletedTrophies = await pool.query(`DELETE FROM season_points_weekly`);
+        console.log(`🗑️ Borrados TODOS los registros de copas semanales: ${deletedTrophies.rowCount || 0}`);
+        
+        // 9. Reset Clan Games a 0 y borrar fechas
         await pool.query(`
             UPDATE season_events 
             SET clan_games_points = 0, clan_games_date = NULL
@@ -84,7 +93,7 @@ export async function POST() {
         
         console.log('✅ Clan Games reseteado a 0');
         
-        // 9. Insertar nueva configuración de temporada
+        // 10. Insertar nueva configuración de temporada
         await pool.query(`
             INSERT INTO season_config (season_start_date, season_name) 
             VALUES ($1, $2)
@@ -92,7 +101,7 @@ export async function POST() {
         
         console.log('✅ Nueva temporada configurada');
         
-        // 10. Obtener conteo de jugadores activos
+        // 11. Obtener conteo de jugadores activos
         const activePlayersCount = await pool.query(`
             SELECT COUNT(*) FROM players WHERE is_active = true
         `);
@@ -101,15 +110,16 @@ export async function POST() {
         
         return NextResponse.json({
             success: true,
-            message: 'Reset de temporada completado con baselines guardados',
+            message: 'Reset de temporada completado - baselines en 0',
             data: {
                 reset_date: resetDate.toISOString(),
                 backup_table: `player_scores_backup_${backupSuffix}`,
                 players_reset: activePlayersCount.rows[0].count,
-                deleted_wars: deletedWars.rowCount,
-                deleted_capital: deletedCapital.rowCount,
-                deleted_cwl: deletedCWL.rowCount,
-                baselines_saved: true
+                deleted_wars: deletedWars.rowCount || 0,
+                deleted_capital: (deletedCapital.rowCount || 0) + (deletedCapitalWeekly.rowCount || 0),
+                deleted_cwl: deletedCWL.rowCount || 0,
+                deleted_trophies: deletedTrophies.rowCount || 0,
+                baselines_reset_to_zero: true
             }
         });
         

@@ -242,7 +242,10 @@ class AccumulativeClashUpdater {
             INSERT INTO donations (player_tag, donations_given, donations_received, donation_ratio, recorded_at)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (player_tag, recorded_at)
-            DO UPDATE SET donations_given = $2, donations_received = $3, donation_ratio = $4
+            DO UPDATE SET 
+                donations_given = GREATEST(donations.donations_given, $2),
+                donations_received = GREATEST(donations.donations_received, $3),
+                donation_ratio = $4
         `, [cleanTag, seasonDonated, seasonReceived, donationRatio, today]);
 
         await pool.query(`
